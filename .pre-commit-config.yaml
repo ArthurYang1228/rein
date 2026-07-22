@@ -1,0 +1,32 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.22
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy --strict
+        entry: uv run mypy --strict .
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: detect-secrets（規則式 secret 掃描，第一道防線）
+        args: ['--baseline', '.secrets.baseline']
+
+  - repo: local
+    hooks:
+      - id: claude-review
+        name: Claude Code review (CLAUDE.md)
+        entry: bash scripts/claude_review.sh
+        language: system
+        types: [file]
+        pass_filenames: false

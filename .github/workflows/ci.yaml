@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  UV_VERSION: "0.11.24"
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  lint:
+    name: Ruff (lint + format)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Sync dependencies
+        run: uv sync --locked --all-groups
+
+      - name: ruff check
+        run: uv run ruff check .
+
+      - name: ruff format --check
+        run: uv run ruff format --check .
+
+  typecheck:
+    name: mypy --strict
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Sync dependencies
+        run: uv sync --locked --all-groups
+
+      - name: mypy --strict
+        run: uv run mypy --strict .
+
+  test:
+    name: pytest (coverage >= 70%)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Sync dependencies
+        run: uv sync --locked --all-groups
+
+      - name: Run tests with coverage gate
+        run: |
+          if find tests -name 'test_*.py' -print -quit 2>/dev/null | grep -q .; then
+            uv run pytest --cov --cov-report=term-missing --cov-fail-under=70
+          else
+            echo "::warning::No tests found under tests/ yet — skipping coverage gate. See README roadmap."
+          fi
