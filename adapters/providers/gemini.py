@@ -2,7 +2,8 @@
 
 from core.interfaces.llm_provider import LLMProvider
 import inspect
-from typing import Callable
+from typing import Any
+from collections.abc import Callable
 
 PYTHON_TO_JSON_SCHEMA_TYPE = {
     # 基礎型態
@@ -21,7 +22,7 @@ PYTHON_TO_JSON_SCHEMA_TYPE = {
 class GeminiProvider(LLMProvider):
     """LLMProvider 介面的 Gemini SDK 實作。"""
 
-    def get_tool(self, func: Callable) -> dict:
+    def get_tool(self, func: Callable[..., Any]) -> dict[str, Any]:
         properties = {}
         required = []
         for name, parameter in inspect.signature(func).parameters.items():
