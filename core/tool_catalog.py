@@ -1,4 +1,5 @@
 from core.interfaces.tool import Tool
+from core.exceptions import UnknownToolError
 
 
 class ToolCatalog:
@@ -15,7 +16,7 @@ class ToolCatalog:
         try:
             return cls._tools[tool_name]
         except KeyError:
-            raise KeyError(f"tool {tool_name} not found")
+            raise UnknownToolError(f"tool {tool_name} not found")
 
     @classmethod
     def is_registered(cls, tool_name: str) -> bool:

@@ -1,7 +1,10 @@
 """Bash 指令執行工具。"""
 
-from core.interfaces.tool import Tool
+from adapters.tool_kinds.function_tool import register_tool
+import subprocess
 
-
-class BashTool(Tool):
-    """Tool 介面的 bash 指令執行實作,是 RiskClassifier 重點審查的高風險工具。"""
+@register_tool
+def bash(command: str) -> str:
+    """執行 bash 指令並回傳輸出"""
+    resp = subprocess.run(command, capture_output=True, text=True, shell=True)
+    return resp.stdout
