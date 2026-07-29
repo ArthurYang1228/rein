@@ -3,7 +3,7 @@
 from typing import List
 
 from core import Tool
-from core.ToolCatalog import ToolCatalog
+from core.tool_catalog import ToolCatalog
 from core.interfaces.tool_info_model import ToolInfo
 
 

@@ -9,7 +9,7 @@ import pytest
 
 from core.interfaces.tool import Tool
 from core.interfaces.tool_info_model import ToolInfo
-from core.ToolCatalog import ToolCatalog
+from core.tool_catalog import ToolCatalog
 from core.tool_registry import ToolRegistry
 
 

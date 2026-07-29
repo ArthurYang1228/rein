@@ -4,7 +4,7 @@ from collections.abc import Iterator
 
 import pytest
 
-from core.ToolCatalog import ToolCatalog
+from core.tool_catalog import ToolCatalog
 
 
 @pytest.fixture(autouse=True)

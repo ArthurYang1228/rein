@@ -7,8 +7,8 @@
 
 import pytest
 
-from adapters.tool_kinds.FunctionTool import FunctionTool, register_tool
-from core.ToolCatalog import ToolCatalog
+from adapters.tool_kinds.function_tool import FunctionTool, register_tool
+from core.tool_catalog import ToolCatalog
 
 
 def add(a: float, b: float) -> float:

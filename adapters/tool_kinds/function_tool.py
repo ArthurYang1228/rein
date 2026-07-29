@@ -1,7 +1,7 @@
 from core.interfaces.tool import Tool
 import inspect
 from core.interfaces.tool_info_model import ParamInfo, ToolInfo
-from core.ToolCatalog import ToolCatalog
+from core.tool_catalog import ToolCatalog
 from typing import Any, cast
 from collections.abc import Callable
 

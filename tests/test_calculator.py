@@ -1,6 +1,6 @@
 """tools/calculator.py 的單元測試。"""
 
-from core.ToolCatalog import ToolCatalog
+from core.tool_catalog import ToolCatalog
 from tools.calculator import add
 
 
