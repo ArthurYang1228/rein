@@ -19,16 +19,16 @@ class FunctionTool(Tool):
 
         self.description = func.__doc__
         if self.description is None:
-            raise ToolRegistrationError(f"工具函數:{{self.name}} 缺少docstring")
-        
+            raise ToolRegistrationError("工具函數:{self.name} 缺少docstring")
+
         self.input_schema = {}
         param_schema = {}
         self._tool_sig = inspect.signature(func)
 
         for key, parameter in self._tool_sig.parameters.items():
             if parameter.annotation is None:
-                raise ToolRegistrationError(f"工具函數:{{self.name}}中，參數: {{key}} 缺少型別註記")
-                
+                raise ToolRegistrationError("工具函數:{self.name}中，參數: {key} 缺少型別註記")
+
             param_info = {
                 "name": key,
                 "type": parameter.annotation.__name__,
@@ -41,28 +41,29 @@ class FunctionTool(Tool):
                 param_schema[key] = (parameter.annotation, parameter.default)
 
             except ValidationError:
-                raise ToolRegistrationError(f"工具函數:{{self.name}}中，參數: {{key}} 使用不支援的型別")
-                
+                raise ToolRegistrationError("工具函數:{self.name}中，參數: {key} 使用不支援的型別")
+
         self.info = ToolInfo(
             name=self.name,
-            type = "function",
+            type="function",
             description=self.description,
             input_schema=self.input_schema,
         )
 
-        self._param_validator  = create_model("param_validator", **param_schema)
+        self._param_validator = create_model("param_validator", **param_schema)
 
     def get_info(self) -> ToolInfo:
 
         return self.info
 
     def execute(self, *args: Any, **kwargs: Any) -> Any:
-        self._tool_sig.bind()
+        param_sig = self._tool_sig.bind(*args, **kwargs)
+        self._param_validator.model_validate(param_sig)
+
         return self.func(*args, **kwargs)
 
 
 def register_tool(func: Callable[..., Any]) -> Callable[..., Any]:
-
 
     if not ToolCatalog.is_registered(func.__name__):
         tool = FunctionTool(func)

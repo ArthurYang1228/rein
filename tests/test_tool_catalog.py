@@ -17,7 +17,7 @@ class FakeTool(Tool):
     description = "假工具"
 
     def get_info(self) -> ToolInfo:
-        return ToolInfo(name=self.name, description=self.description, input_schema={})
+        return ToolInfo(name=self.name, type="fake", description=self.description, input_schema={})
 
     def execute(self, *args: object, **kwargs: object) -> str:
         return "ok"
