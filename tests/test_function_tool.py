@@ -1,13 +1,9 @@
-"""FunctionTool / register_tool 的單元測試。
-
-例外處理尚未實作,失敗情境先用最廣的 Exception 接住;
-等實際的例外型別(例如 ToolRegistrationError)實作完成後,
-這幾個 pytest.raises(Exception) 要收斂成對應的具體型別。
-"""
+"""FunctionTool / register_tool 的單元測試。"""
 
 import pytest
 
 from adapters.tool_kinds.function_tool import FunctionTool, register_tool
+from core.exceptions import ToolExecutionError, ToolRegistrationError
 from core.tool_catalog import ToolCatalog
 
 
@@ -49,7 +45,7 @@ def test_missing_docstring_raises() -> None:
     def no_doc(a: float) -> float:
         return a
 
-    with pytest.raises(Exception):  # noqa: B017 - 例外型別尚未定案
+    with pytest.raises(ToolRegistrationError, match="no_doc"):
         FunctionTool(no_doc)
 
 
@@ -58,7 +54,7 @@ def test_missing_type_annotation_raises() -> None:
         """缺型別註記。"""
         return a  # type: ignore[no-any-return]
 
-    with pytest.raises(Exception):  # noqa: B017 - 例外型別尚未定案
+    with pytest.raises(ToolRegistrationError, match="missing_annotation"):
         FunctionTool(missing_annotation)
 
 
@@ -69,5 +65,44 @@ def test_unsupported_type_raises() -> None:
     def unsupported(a: NotSupported) -> None:
         """型別不支援。"""
 
-    with pytest.raises(Exception):  # noqa: B017 - 例外型別尚未定案
+    with pytest.raises(ToolRegistrationError, match="unsupported"):
         FunctionTool(unsupported)
+
+
+def test_execute_missing_required_argument_raises() -> None:
+    calls: list[tuple[float, float]] = []
+
+    def record_add(num1: float, num2: float) -> float:
+        """記錄呼叫並相加。"""
+        calls.append((num1, num2))
+        return num1 + num2
+
+    tool = FunctionTool(record_add)
+
+    with pytest.raises(ToolExecutionError):
+        tool.execute(num1=1.0)
+
+    assert calls == []
+
+
+def test_execute_wrong_type_raises() -> None:
+    calls: list[tuple[float, float]] = []
+
+    def record_add(num1: float, num2: float) -> float:
+        """記錄呼叫並相加。"""
+        calls.append((num1, num2))
+        return num1 + num2
+
+    tool = FunctionTool(record_add)
+
+    with pytest.raises(ToolExecutionError):
+        tool.execute(num1="2", num2=3.0)
+
+    assert calls == []
+
+
+def test_execute_extra_unexpected_argument_raises() -> None:
+    tool = FunctionTool(add)
+
+    with pytest.raises(ToolExecutionError):
+        tool.execute(a=1, b=2, c=3)

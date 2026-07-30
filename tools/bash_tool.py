@@ -3,6 +3,7 @@
 from adapters.tool_kinds.function_tool import register_tool
 import subprocess
 
+
 @register_tool
 def bash(command: str) -> str:
     """執行 bash 指令並回傳輸出"""

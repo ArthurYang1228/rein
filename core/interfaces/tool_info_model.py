@@ -11,6 +11,6 @@ class ParamInfo(BaseModel):
 
 class ToolInfo(BaseModel):
     name: str
-    type: str
+    type: Literal["function", "mcp"]
     description: str
     input_schema: dict[str, ParamInfo]

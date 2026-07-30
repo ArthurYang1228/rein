@@ -15,8 +15,8 @@ class ToolCatalog:
     def get(cls, tool_name: str) -> Tool:
         try:
             return cls._tools[tool_name]
-        except KeyError:
-            raise UnknownToolError(f"tool {tool_name} not found")
+        except KeyError as e:
+            raise UnknownToolError(f"tool {tool_name} not found") from e
 
     @classmethod
     def is_registered(cls, tool_name: str) -> bool:
