@@ -1,12 +1,8 @@
-"""ToolCatalog 的單元測試。
-
-查無工具的例外型別尚未實作,先用最廣的 Exception 接住;
-等實際的例外型別(例如 ToolNotFoundError)實作完成後,
-這裡的 pytest.raises(Exception) 要收斂成對應的具體型別。
-"""
+"""ToolCatalog 的單元測試。"""
 
 import pytest
 
+from core.exceptions import UnknownToolError
 from core.interfaces.tool import Tool
 from core.interfaces.tool_info_model import ToolInfo
 from core.tool_catalog import ToolCatalog
@@ -41,5 +37,5 @@ def test_is_registered_reflects_state() -> None:
 
 
 def test_get_missing_tool_raises() -> None:
-    with pytest.raises(Exception):  # noqa: B017 - 例外型別尚未定案
+    with pytest.raises(UnknownToolError, match="does-not-exist"):
         ToolCatalog.get("does-not-exist")

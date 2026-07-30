@@ -1,12 +1,8 @@
-"""ToolRegistry 的單元測試。
-
-查無工具的例外型別尚未實作,先用最廣的 Exception 接住;
-等實際的例外型別實作完成後,這裡的 pytest.raises(Exception)
-要收斂成對應的具體型別。
-"""
+"""ToolRegistry 的單元測試。"""
 
 import pytest
 
+from core.exceptions import UnknownToolError
 from core.interfaces.tool import Tool
 from core.interfaces.tool_info_model import ToolInfo
 from core.tool_catalog import ToolCatalog
@@ -44,7 +40,7 @@ def test_init_builds_subset_from_catalog() -> None:
 
 
 def test_init_raises_for_unknown_tool_name() -> None:
-    with pytest.raises(Exception):  # noqa: B017 - 例外型別尚未定案
+    with pytest.raises(UnknownToolError, match="not-registered"):
         ToolRegistry(["not-registered"])
 
 
@@ -58,3 +54,19 @@ def test_add_and_remove_tool() -> None:
     registry.remove_tool("gamma")
     with pytest.raises(KeyError):
         registry.get_tool("gamma")
+
+
+def test_multiple_registries_are_independent() -> None:
+    _register("delta")
+    _register("epsilon")
+
+    registry_a = ToolRegistry(["delta"])
+    registry_b = ToolRegistry(["epsilon"])
+
+    assert list(registry_a.tool_dict) == ["delta"]
+    assert list(registry_b.tool_dict) == ["epsilon"]
+
+    registry_a.add_tool("epsilon")
+
+    assert list(registry_a.tool_dict) == ["delta", "epsilon"]
+    assert list(registry_b.tool_dict) == ["epsilon"]
