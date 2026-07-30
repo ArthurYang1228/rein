@@ -32,14 +32,16 @@ class FunctionTool(Tool):
             try:
                 param_info = {
                     "name": key,
-                    "type": parameter.annotation.__name__,
+                    "type": getattr(parameter.annotation, "__name__", None),
                     "description": "",
                     "default": str(parameter.default)
                     if parameter.default is not inspect.Parameter.empty
                     else "",
                 }
 
-                self.input_schema[key] = ParamInfo(**param_info)
+                # type 可能是 None(例如 Union 型別沒有 __name__),故意讓它流進
+                # ParamInfo 的 Literal 驗證,由下面的 except ValidationError 擋下來
+                self.input_schema[key] = ParamInfo(**param_info)  # type: ignore[arg-type]
                 param_schema[key] = (
                     (parameter.annotation, parameter.default)
                     if parameter.default is not inspect.Parameter.empty

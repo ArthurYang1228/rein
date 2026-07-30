@@ -69,6 +69,15 @@ def test_unsupported_type_raises() -> None:
         FunctionTool(unsupported)
 
 
+def test_union_type_annotation_raises() -> None:
+    def with_union(a: int | None) -> int:
+        """參數是 Union 型別。"""
+        return a or 0
+
+    with pytest.raises(ToolRegistrationError, match="with_union"):
+        FunctionTool(with_union)
+
+
 def test_execute_missing_required_argument_raises() -> None:
     calls: list[tuple[float, float]] = []
 
