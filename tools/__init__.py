@@ -1,7 +1,3 @@
-"""agent 可用工具集中匯出。"""
+"""明確 import 所有工具模組,觸發各自的 @register_tool 裝饋,把 ToolCatalog 填滿。"""
 
-from tools.bash_tool import BashTool
-from tools.calculator import CalculatorTool
-from tools.file_ops import FileOpsTool
-
-__all__ = ["BashTool", "CalculatorTool", "FileOpsTool"]
+from tools import bash_tool, calculator, file_ops  # noqa: F401

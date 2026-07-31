@@ -3,6 +3,7 @@ name = "rein"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "pydantic>=2.13.4",
     "ruff>=0.15.22",
 ]
 
@@ -22,6 +23,7 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]
 
 [tool.coverage.run]
 source = ["core", "adapters", "tools"]

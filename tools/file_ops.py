@@ -1,7 +1,10 @@
 """檔案操作工具。"""
 
-from core.interfaces.tool import Tool
+from adapters.tool_kinds.function_tool import register_tool
 
 
-class FileOpsTool(Tool):
-    """Tool 介面的檔案操作實作,供 agent 讀寫、列出檔案。"""
+@register_tool
+def open_file(file_name: str) -> str:
+    """讀取檔案內容"""
+    with open(file_name) as f:
+        return f.read()
