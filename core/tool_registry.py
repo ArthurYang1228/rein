@@ -1,6 +1,6 @@
 """工具註冊與查找。"""
 
-from core import Tool
+from core.interfaces.tool import Tool
 from core.tool_catalog import ToolCatalog
 from core.interfaces.tool_info_model import ToolInfo
 

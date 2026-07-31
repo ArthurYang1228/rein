@@ -68,5 +68,7 @@ _Avoid_: 跟 `ToolRegistry` 混用——`ToolCatalog` 是宇宙全集(來源),`T
 **ToolRegistry**:
 依一份工具名稱列表,從 `ToolCatalog` **篩選**出對應子集合的元件,不會重新實例化工具(工具早在 `ToolCatalog` 填入時就是完成品)。不同 agent 可各自建立自己的 `ToolRegistry`,篩出不同子集合,彼此獨立,共用同一份 `ToolCatalog` 不會重複付出自省成本。名稱列表裡若有 `ToolCatalog` 找不到的名字,直接拋錯,不靜默略過。
 
-**ConsecutiveFailureLimit**:
-同一個工具呼叫連續驗證失敗(pydantic 驗證 LLM 給的參數不過)達上限次數時觸發的計數器,跟 `max_iterations`(整個 `AgentLoop` 的總輪數上限)是不同維度——`max_iterations` 管整體別跑太久,`ConsecutiveFailureLimit` 管別卡在同一個壞掉的呼叫上、把整體預算燒光。達上限時把「已達重試上限」的訊息塞回 message history,`AgentLoop` 不中斷、也不升級成人工確認——驗證失敗代表工具根本沒真的執行,沒有安全疑慮,只是沒效率,性質上歸 `CostMonitor` 的範疇而非 `RiskClassifier`。人類拒絕(`ApprovalAction` 的 deny)與參數驗證失敗,共用同一套「失敗結果塞回 message history、不中斷迴圈」的回饋機制。
+**TotalFailureLimit**:
+整個 `AgentLoop` session 範圍、**全域單一**的工具呼叫失敗計數器(不分是哪個工具),任何一次 `ToolExecutionError` 就累加 1,**不會**因為中間穿插了幾次成功就重置(即使 A 失敗 → A 之後成功 → B 失敗,一樣算 2 次)。跟 `max_iterations`(整個 `AgentLoop` 的總輪數上限)是不同維度——`max_iterations` 管整體別跑太久,`TotalFailureLimit` 管「這個 session 累積下來是不是一直在出錯」。達上限時把「已達重試上限」的訊息塞回 message history,`AgentLoop` 不中斷、也不升級成人工確認——驗證失敗代表工具根本沒真的執行,沒有安全疑慮,只是沒效率,性質上歸 `CostMonitor` 的範疇而非 `RiskClassifier`。人類拒絕(`ApprovalAction` 的 deny)與參數驗證失敗,共用同一套「失敗結果塞回 message history、不中斷迴圈」的回饋機制。
+_Avoid_: `ConsecutiveFailureLimit`(討論中曾用過的舊名,已確認不重置、也不分工具各自計數,不是「連續」的概念,改用更準確的 `TotalFailureLimit`)。
+_已知取捨_:完全不重置代表一個很長、整體健康的 session,可能單純因為輪數夠多、偶爾出現幾次無傷大雅的失誤就被慢慢累加到觸發上限——這是刻意先簡化的 MVP 選擇(YAGNI),真的遇到這個問題再回來加重置機制(例如連續 N 次成功才重置)。
