@@ -1,25 +1,71 @@
-"""ToolCatalog 的單元測試。"""
+"""LLM provide 介面和資料model 的單元測試。"""
 
 import pytest
 
 
 from core.interfaces.llm_provider import LLMProvider
 from core.interfaces.llm_message_model import TextBlock, ToolUseBlock, ToolResultBlock, LlmMessage
-from test_tool_catalog import FakeTool
 from pydantic import ValidationError
+import json
 
 
-def test_LlmMessage_block() -> None:
-
-    with pytest.raises(ValidationError):
-        msg = LlmMessage(role='nonligel-role')
-
-
-def test_LlmMessage_block() -> None:
+def test_llm_message_block() -> None:
 
     with pytest.raises(ValidationError):
-        msg = LlmMessage(role='nonligel-role')
+        LlmMessage(role="nonligel-role")  # type: ignore[call-arg, arg-type]
 
+
+def test_text_block() -> None:
+
+    with pytest.raises(ValidationError):
+        TextBlock(type="t", content="test")  # type: ignore[arg-type]
+
+
+def test_tool_use_block() -> None:
+
+    with pytest.raises(ValidationError):
+        ToolUseBlock(
+            type="tool_use",
+            id="1",
+            name="add",
+            input={"num1": 1, "num2": [2]},  # type: ignore[dict-item]
+        )
+
+
+def test_tool_result_block() -> None:
+
+    with pytest.raises(ValidationError):
+        ToolResultBlock(
+            type="tool_result",
+            tool_use_id="1",
+            is_error=1,  # type: ignore[arg-type]
+            content="success",
+        )
+
+
+def test_message_serial() -> None:
+
+    tb = TextBlock(type="text", content="test")
+    tub = ToolUseBlock(type="tool_use", id="1", name="add", input={"num1": 1, "num2": 2})
+    trb = ToolResultBlock(type="tool_result", tool_use_id="1", is_error=False, content="success")
+    msg = LlmMessage(role="user", content_blocks=[tb, tub, trb])
+    msg_json = msg.model_dump_json()
+
+    try:
+        # 解析成功代表格式完全合法
+        json.loads(msg_json)
+    except json.JSONDecodeError:
+        pytest.fail("輸出不是合法的 JSON 格式")
+
+    recover_msg = LlmMessage.model_validate_json(msg_json)
+    assert isinstance(recover_msg.content_blocks[0], TextBlock)
+    assert isinstance(recover_msg.content_blocks[1], ToolUseBlock)
+    assert isinstance(recover_msg.content_blocks[2], ToolResultBlock)
+
+
+def test_provider_interface() -> None:
+    with pytest.raises(TypeError):
+        LLMProvider()  # type: ignore[abstract]
 
 
 # class FakeProvider(LLMProvider):

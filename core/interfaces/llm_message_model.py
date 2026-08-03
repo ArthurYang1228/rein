@@ -1,9 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from typing import Literal, Union, Annotated
+
 
 class TextBlock(BaseModel):
     type: Literal["text"]
     content: str
+
 
 class ToolUseBlock(BaseModel):
     type: Literal["tool_use"]
@@ -11,20 +13,25 @@ class ToolUseBlock(BaseModel):
     name: str
     input: dict[str, str | int | float | bool]
 
+
 class ToolResultBlock(BaseModel):
     type: Literal["tool_result"]
     tool_use_id: str
-    is_error: bool
+    is_error: StrictBool
     content: str
+
 
 # class ContentBlock(BaseModel):
 #     content_block: Union[TextBlock, ToolUseBlock, ToolResultBlock] = Field(..., discriminator="type")
 
-ContentBlock = Annotated[Union[TextBlock, ToolUseBlock, ToolResultBlock], Field(discriminator="type")]
+ContentBlock = Annotated[
+    Union[TextBlock, ToolUseBlock, ToolResultBlock], Field(discriminator="type")
+]
+
 
 class LlmMessage(BaseModel):
     role: Literal["user", "llm"]
-    content_blocks : list[ContentBlock]
+    content_blocks: list[ContentBlock]
 
     @property
     def tool_uses(self) -> list[ToolUseBlock]:
