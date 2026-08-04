@@ -47,8 +47,9 @@ def test_message_serial() -> None:
 
     tb = TextBlock(type="text", content="test")
     tub = ToolUseBlock(type="tool_use", id="1", name="add", input={"num1": 1, "num2": 2})
+    tub2 = ToolUseBlock(type="tool_use", id="2", name="add", input={"num1": 3, "num2": 4})
     trb = ToolResultBlock(type="tool_result", tool_use_id="1", is_error=False, content="success")
-    msg = LlmMessage(role="user", content_blocks=[tb, tub, trb])
+    msg = LlmMessage(role="user", content_blocks=[tb, tub, trb, tub2])
     msg_json = msg.model_dump_json()
 
     try:
@@ -61,6 +62,9 @@ def test_message_serial() -> None:
     assert isinstance(recover_msg.content_blocks[0], TextBlock)
     assert isinstance(recover_msg.content_blocks[1], ToolUseBlock)
     assert isinstance(recover_msg.content_blocks[2], ToolResultBlock)
+    assert len(recover_msg.tool_uses) == 2
+    assert isinstance(recover_msg.tool_uses[0], ToolUseBlock)
+    assert isinstance(recover_msg.tool_uses[1], ToolUseBlock)
 
 
 def test_provider_interface() -> None:
