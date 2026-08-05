@@ -1,3 +1,4 @@
+from mypy.types import Any
 from pydantic import BaseModel, Field, StrictBool
 from typing import Literal, Union, Annotated
 
@@ -18,7 +19,7 @@ class ToolResultBlock(BaseModel):
     type: Literal["tool_result"]
     tool_use_id: str
     is_error: StrictBool
-    content: str
+    content: Any
 
 
 # class ContentBlock(BaseModel):
