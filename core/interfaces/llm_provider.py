@@ -1,8 +1,7 @@
 """LLM 呼叫的抽象介面(port)。"""
 
 from abc import ABC, abstractmethod
-
-from mypy.types import Any
+from typing import Any
 
 from core.interfaces.llm_message_model import LlmMessage
 from core.interfaces.tool_info_model import ToolInfo

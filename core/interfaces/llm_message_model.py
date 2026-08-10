@@ -1,6 +1,5 @@
-from mypy.types import Any
 from pydantic import BaseModel, Field, StrictBool
-from typing import Literal, Union, Annotated
+from typing import Any, Literal, Union, Annotated
 
 
 class TextBlock(BaseModel):
