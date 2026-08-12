@@ -14,3 +14,9 @@ class UnknownToolError(Exception):
     """嘗試呼叫未知或未註冊工具"""
 
     pass
+
+
+class MaxIterationsExceededError(Exception):
+    """迴圈執行超過上限"""
+
+    pass
