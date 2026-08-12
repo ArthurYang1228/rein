@@ -69,7 +69,7 @@ def test_message_serial() -> None:
 
 def test_provider_interface() -> None:
     with pytest.raises(TypeError):
-        LLMProvider()  # type: ignore[abstract]
+        LLMProvider()  # type: ignore[abstract, call-arg]
 
 
 # class FakeProvider(LLMProvider):

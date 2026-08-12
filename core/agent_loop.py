@@ -39,6 +39,17 @@ class AgentLoop:
             tool_rst_list: list[ContentBlock] = []
             if tool_uses:
                 for tool_use in tool_uses:
+                    if tool_failure_count >= self.total_failure_limit:
+                        fail_msg_block = ToolResultBlock(
+                            type="tool_result",
+                            tool_use_id=tool_use.id,
+                            is_error=True,
+                            content=f"Tool執行錯誤次數已達上限{self.total_failure_limit}次，請統整錯誤並尋找其他方法，不可再呼叫Tool",
+                        )
+
+                        tool_rst_list.append(fail_msg_block)
+                        continue
+
                     tool = self.tool_registry.get_tool(tool_use.name)
                     try:
                         tool_rst = tool.execute(**tool_use.input)
@@ -50,28 +61,19 @@ class AgentLoop:
                         )
 
                     except ToolExecutionError as e:
+                        tool_failure_count += 1
                         rst_block = ToolResultBlock(
                             type="tool_result",
                             tool_use_id=tool_use.id,
                             is_error=True,
-                            content=str(e),
+                            content=f"目前工具執行錯誤次數:{tool_failure_count}次，允許錯誤次數上限:{self.total_failure_limit}次，本次錯誤訊息為: {str(e)}",
                         )
-                        tool_failure_count += 1
 
                     tool_rst_list.append(rst_block)
 
                 tool_rst_msg = LlmMessage(role="user", content_blocks=tool_rst_list)
                 self.messages.append(tool_rst_msg)
-                if tool_failure_count >= self.total_failure_limit:
-                    fail_msg = [
-                        ToolResultBlock(
-                            type="tool_result",
-                            tool_use_id="all",
-                            is_error=True,
-                            content=f"Tool執行錯誤次數已達上限{self.total_failure_limit}次，迴圈中斷",
-                        )
-                    ]
-                    return LlmMessage(role="llm", content_blocks=fail_msg)
             else:
                 return resp
+
         raise MaxIterationsExceededError(f"超出執行迴圈上限:{self.max_iterations}次")

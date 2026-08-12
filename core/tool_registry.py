@@ -3,6 +3,7 @@
 from core.interfaces.tool import Tool
 from core.tool_catalog import ToolCatalog
 from core.interfaces.tool_info_model import ToolInfo
+from core.exceptions import UnknownToolError
 
 
 class ToolRegistry:
@@ -19,10 +20,16 @@ class ToolRegistry:
         self.tool_dict[tool_name] = ToolCatalog.get(tool_name)
 
     def remove_tool(self, tool_name: str) -> None:
-        del self.tool_dict[tool_name]
+
+        if tool_name in self.tool_dict:
+            del self.tool_dict[tool_name]
 
     def get_tool(self, tool_name: str) -> Tool:
-        return self.tool_dict[tool_name]
+
+        try:
+            return self.tool_dict[tool_name]
+        except KeyError as e:
+            raise UnknownToolError(f"tool {tool_name} not found") from e
 
     def get_all_tool_info(self) -> list[ToolInfo]:
         return [tool.get_info() for tool in self.tool_dict.values()]

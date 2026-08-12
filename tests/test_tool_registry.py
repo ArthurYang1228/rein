@@ -52,7 +52,7 @@ def test_add_and_remove_tool() -> None:
     assert registry.get_tool("gamma").execute() == "gamma-executed"
 
     registry.remove_tool("gamma")
-    with pytest.raises(KeyError):
+    with pytest.raises(UnknownToolError):
         registry.get_tool("gamma")
 
 

@@ -72,14 +72,14 @@ class FunctionTool(Tool):
         try:
             param_sig = self._tool_sig.bind(*args, **kwargs)
             self._param_validator.model_validate(param_sig.arguments, strict=True)
+            return self.func(**param_sig.arguments)
 
         except TypeError as e:
             raise ToolExecutionError(str(e)) from e
-
         except ValidationError as e:
             raise ToolExecutionError(str(e)) from e
-
-        return self.func(**param_sig.arguments)
+        except Exception as e:
+            raise ToolExecutionError(str(e)) from e
 
 
 def register_tool(func: Callable[..., Any]) -> Callable[..., Any]:
