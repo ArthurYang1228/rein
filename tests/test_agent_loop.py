@@ -192,6 +192,48 @@ def test_run_short_circuits_tool_execution_after_total_failure_limit() -> None:
     assert second_result_block.is_error is True
 
 
+def test_run_total_failure_count_is_not_reset_by_an_intervening_success() -> None:
+    """驗證 TotalFailureLimit 是全域計數,中間穿插一次成功不會重置。
+
+    情境對照 ticket #11 的驗收標準:工具失敗、之後成功、再失敗,應計為 2 次。
+    """
+    ToolCatalog.register(FakeFailingTool())
+    ToolCatalog.register(FakeAddTool())
+    failing_tool = ToolCatalog.get("fail")
+    registry = ToolRegistry(["fail", "add"])
+    provider = FakeLLMProvider(
+        registry.get_all_tool_info(),
+        [
+            _tool_use_response("1", "fail", {}),
+            _tool_use_response("2", "add", {"num1": 1, "num2": 2}),
+            _tool_use_response("3", "fail", {}),
+            _text_response("done"),
+        ],
+    )
+    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry, total_failure_limit=3)
+
+    loop.run("先失敗、再成功、再失敗")
+
+    assert isinstance(failing_tool, FakeFailingTool)
+    assert failing_tool.call_count == 2
+
+    first_failure = loop.messages[2].content_blocks[0]
+    assert isinstance(first_failure, ToolResultBlock)
+    assert first_failure.is_error is True
+    assert "目前工具執行錯誤次數:1次" in str(first_failure.content)
+
+    success = loop.messages[4].content_blocks[0]
+    assert isinstance(success, ToolResultBlock)
+    assert success.is_error is False
+    assert success.content == 3.0
+
+    second_failure = loop.messages[6].content_blocks[0]
+    assert isinstance(second_failure, ToolResultBlock)
+    assert second_failure.is_error is True
+    # 中間那次成功不會讓計數被重置回 1,應該接續累加成 2
+    assert "目前工具執行錯誤次數:2次" in str(second_failure.content)
+
+
 def test_run_groups_multiple_tool_results_in_one_message_after_limit_reached() -> None:
     ToolCatalog.register(FakeFailingTool())
     ToolCatalog.register(FakeAddTool())
