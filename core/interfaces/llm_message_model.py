@@ -6,23 +6,18 @@ class TextBlock(BaseModel):
     type: Literal["text"]
     content: str
 
-
 class ToolUseBlock(BaseModel):
     type: Literal["tool_use"]
     id: str
     name: str
     input: dict[str, str | int | float | bool]
 
-
 class ToolResultBlock(BaseModel):
     type: Literal["tool_result"]
     tool_use_id: str
+    name: str
     is_error: StrictBool
     content: Any
-
-
-# class ContentBlock(BaseModel):
-#     content_block: Union[TextBlock, ToolUseBlock, ToolResultBlock] = Field(..., discriminator="type")
 
 ContentBlock = Annotated[
     Union[TextBlock, ToolUseBlock, ToolResultBlock], Field(discriminator="type")
@@ -32,6 +27,7 @@ ContentBlock = Annotated[
 class LlmMessage(BaseModel):
     role: Literal["user", "llm"]
     content_blocks: list[ContentBlock]
+    provider_data: list[dict[str, Any]] | None = Field(default=None)
 
     @property
     def tool_uses(self) -> list[ToolUseBlock]:

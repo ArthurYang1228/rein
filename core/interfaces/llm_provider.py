@@ -15,9 +15,9 @@ class LLMProvider(ABC):
     """
 
     def __init__(self, tool_info_list: list[ToolInfo], sys_prompt: str = "") -> None:
-        self.sys_prompt = sys_prompt
-        self.tool_info_list = tool_info_list
-        self.native_tool_list = self._process_tool_info_list(tool_info_list)
+        self.sys_prompt: str = sys_prompt
+        self.tool_info_list: list[ToolInfo] = tool_info_list
+        self.native_tool_list: list[Any] = self._process_tool_info_list(tool_info_list)
 
     @abstractmethod
     def call(self, messages: list[LlmMessage]) -> LlmMessage:

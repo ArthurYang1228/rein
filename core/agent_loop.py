@@ -8,6 +8,9 @@ from dataclasses import dataclass, field
 from core.exceptions import MaxIterationsExceededError, ToolExecutionError
 
 
+
+
+
 @dataclass
 class AgentLoop:
     """核心迴圈:LLM 思考 → 工具呼叫 → 結果回填 → 再次思考。
@@ -17,8 +20,8 @@ class AgentLoop:
     """
 
     llm: LLMProvider
-    messages: list[LlmMessage]
     tool_registry: ToolRegistry
+    messages: list[LlmMessage]  = field(default_factory=list)
     max_iterations: int = field(default=10)
     total_failure_limit: int = field(default=10)
     result_reviewer: Optional[object] = field(default=None)
@@ -43,6 +46,7 @@ class AgentLoop:
                         fail_msg_block = ToolResultBlock(
                             type="tool_result",
                             tool_use_id=tool_use.id,
+                            name=tool_use.name,
                             is_error=True,
                             content=f"Tool執行錯誤次數已達上限{self.total_failure_limit}次，請統整錯誤並尋找其他方法，不可再呼叫Tool",
                         )
@@ -56,6 +60,7 @@ class AgentLoop:
                         rst_block = ToolResultBlock(
                             type="tool_result",
                             tool_use_id=tool_use.id,
+                            name=tool_use.name,
                             is_error=False,
                             content=tool_rst,
                         )
@@ -65,6 +70,7 @@ class AgentLoop:
                         rst_block = ToolResultBlock(
                             type="tool_result",
                             tool_use_id=tool_use.id,
+                            name=tool_use.name,
                             is_error=True,
                             content=f"目前工具執行錯誤次數:{tool_failure_count}次，允許錯誤次數上限:{self.total_failure_limit}次，本次錯誤訊息為: {str(e)}",
                         )
