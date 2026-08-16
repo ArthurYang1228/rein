@@ -6,9 +6,8 @@ from core.interfaces import LLMProvider
 from typing import Optional
 from dataclasses import dataclass, field
 from core.exceptions import MaxIterationsExceededError, ToolExecutionError
-
-
-
+from core.exceptions import RetryableLLMError
+import time
 
 
 @dataclass
@@ -21,9 +20,11 @@ class AgentLoop:
 
     llm: LLMProvider
     tool_registry: ToolRegistry
-    messages: list[LlmMessage]  = field(default_factory=list)
+    messages: list[LlmMessage] = field(default_factory=list)
     max_iterations: int = field(default=10)
     total_failure_limit: int = field(default=10)
+    max_llm_retries: int = field(default=10)
+    retry_wait_second: int = field(default=10)
     result_reviewer: Optional[object] = field(default=None)
 
     def run(self, user_message: str) -> LlmMessage:
@@ -36,7 +37,19 @@ class AgentLoop:
         tool_failure_count = 0
         while iter_count < self.max_iterations:
             iter_count += 1
-            resp = self.llm.call(self.messages)
+
+            curr_max_llm_retries = 0
+            while True:
+                try:
+                    resp = self.llm.call(self.messages)
+                    break
+                except RetryableLLMError:
+                    if curr_max_llm_retries < self.max_llm_retries:
+                        curr_max_llm_retries += 1
+                        time.sleep(self.retry_wait_second)
+                        continue
+                    raise
+
             self.messages.append(resp)
             tool_uses = resp.tool_uses
             tool_rst_list: list[ContentBlock] = []

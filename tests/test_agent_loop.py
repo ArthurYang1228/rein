@@ -3,7 +3,13 @@
 import pytest
 
 from core.agent_loop import AgentLoop
-from core.exceptions import MaxIterationsExceededError, ToolExecutionError, UnknownToolError
+from core.exceptions import (
+    MaxIterationsExceededError,
+    NonRetryableLLMError,
+    RetryableLLMError,
+    ToolExecutionError,
+    UnknownToolError,
+)
 from core.interfaces.llm_message_model import (
     LlmMessage,
     TextBlock,
@@ -68,6 +74,33 @@ class FakeLLMProvider(LLMProvider):
         response = self._responses[min(self.call_count, len(self._responses) - 1)]
         self.call_count += 1
         return response
+
+
+class FakeFlakyLLMProvider(LLMProvider):
+    """在成功前依序拋出指定的例外,用來測試 AgentLoop 的重試邏輯。"""
+
+    def __init__(
+        self,
+        tool_info_list: list[ToolInfo],
+        exceptions: list[Exception],
+        final_response: LlmMessage,
+    ) -> None:
+        self._exceptions = exceptions
+        self._final_response = final_response
+        self.call_count = 0
+        super().__init__(tool_info_list)
+
+    def _process_tool_info_list(self, tool_info_list: list[ToolInfo]) -> list[ToolInfo]:
+        return tool_info_list
+
+    def call(self, messages: list[LlmMessage]) -> LlmMessage:
+        if self.call_count < len(self._exceptions):
+            exc = self._exceptions[self.call_count]
+            self.call_count += 1
+            raise exc
+
+        self.call_count += 1
+        return self._final_response
 
 
 def _text_response(content: str) -> LlmMessage:
@@ -266,3 +299,86 @@ def test_run_groups_multiple_tool_results_in_one_message_after_limit_reached() -
     assert short_circuited.is_error is True
     assert isinstance(add_result, ToolResultBlock)
     assert add_result.tool_use_id == "3"
+
+
+def test_run_retries_on_retryable_llm_error_then_succeeds() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    provider = FakeFlakyLLMProvider(
+        registry.get_all_tool_info(),
+        exceptions=[RetryableLLMError("暫時性錯誤"), RetryableLLMError("暫時性錯誤")],
+        final_response=_text_response("done"),
+    )
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, max_llm_retries=5, retry_wait_second=0
+    )
+
+    result = loop.run("hello")
+
+    assert provider.call_count == 3
+    first_block = result.content_blocks[0]
+    assert isinstance(first_block, TextBlock)
+    assert first_block.content == "done"
+
+
+def test_run_raises_after_exhausting_llm_retries() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    provider = FakeFlakyLLMProvider(
+        registry.get_all_tool_info(),
+        exceptions=[RetryableLLMError("暫時性錯誤")] * 5,
+        final_response=_text_response("done"),
+    )
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, max_llm_retries=2, retry_wait_second=0
+    )
+
+    with pytest.raises(RetryableLLMError):
+        loop.run("hello")
+
+    # 第一次呼叫 + 2 次重試 = 3 次
+    assert provider.call_count == 3
+
+
+def test_run_llm_retries_do_not_consume_max_iterations() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    provider = FakeFlakyLLMProvider(
+        registry.get_all_tool_info(),
+        exceptions=[RetryableLLMError("暫時性錯誤"), RetryableLLMError("暫時性錯誤")],
+        final_response=_text_response("done"),
+    )
+    loop = AgentLoop(
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        max_iterations=1,
+        max_llm_retries=5,
+        retry_wait_second=0,
+    )
+
+    result = loop.run("hello")
+
+    assert provider.call_count == 3
+    first_block = result.content_blocks[0]
+    assert isinstance(first_block, TextBlock)
+    assert first_block.content == "done"
+
+
+def test_run_propagates_non_retryable_llm_error_immediately() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    provider = FakeFlakyLLMProvider(
+        registry.get_all_tool_info(),
+        exceptions=[NonRetryableLLMError("錯誤的請求")],
+        final_response=_text_response("done"),
+    )
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, max_llm_retries=5, retry_wait_second=0
+    )
+
+    with pytest.raises(NonRetryableLLMError):
+        loop.run("hello")
+
+    # 不該重試,只呼叫一次
+    assert provider.call_count == 1

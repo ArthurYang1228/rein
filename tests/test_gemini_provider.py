@@ -1,14 +1,24 @@
 """GeminiProvider 的單元測試。
 
 interactions.create() 一律用假的 client/response 替換,不打真實 API、
-不需要真實 api_key,也不依賴網路。
+不需要真實 api_key,也不依賴網路。回應相關的物件盡量用真實的 SDK
+pydantic model(google.genai._gaos.types.interactions.*)建構,不用手刻
+的假物件——這樣 SDK 欄位有變動時,測試會直接建構失敗提醒我們,而不是
+永遠只跟自己想像的形狀比對。
+
+FakeFunctionCallStepNoId/FakeResponseWithoutSteps/FakeResponseWithRawSteps 是
+例外:它們刻意模擬「這個屬性/型別在真實 SDK 目前的定義裡本來就不可能發生」
+的情境(id 是必填欄位、Interaction 一定有 steps 屬性、steps 內容一定會被
+pydantic 驗證成真正的 Step),沒辦法用真實物件表達,才維持手刻。
 """
 
 from typing import Any
 
+import httpx
 import pytest
 
 from adapters.providers.gemini import GeminiProvider
+from core.exceptions import NonRetryableLLMError, RetryableLLMError
 from core.interfaces.llm_message_model import (
     LlmMessage,
     TextBlock,
@@ -16,53 +26,56 @@ from core.interfaces.llm_message_model import (
     ToolUseBlock,
 )
 from core.interfaces.tool_info_model import ParamInfo, ToolInfo
+from google.genai._gaos.lib.compat_errors import APIError
+from google.genai._gaos.types.interactions.functioncallstep import FunctionCallStep
+from google.genai._gaos.types.interactions.interaction import Interaction
+from google.genai._gaos.types.interactions.modeloutputstep import ModelOutputStep
+from google.genai._gaos.types.interactions.textcontent import TextContent
+from google.genai._gaos.types.interactions.thoughtstep import ThoughtStep
 
 
-class FakeContent:
-    def __init__(self, type_: str, text: str = "") -> None:
-        self.type = type_
-        self.text = text
+class FakeFunctionCallStepNoId:
+    """故意不設 id 屬性,模擬 SDK 未來把這個屬性整個拿掉的情境(不是值為 None/空字串)。
 
+    真實的 FunctionCallStep.id 是必填欄位,沒辦法建構出一個沒有 id 的
+    真實 instance,這裡只能維持手刻。
+    """
 
-class FakeModelOutputStep:
-    def __init__(self, content: list[FakeContent]) -> None:
-        self.type = "model_output"
-        self.content = content
-
-    def model_dump(self) -> dict[str, Any]:
-        return {"type": self.type}
-
-
-class FakeFunctionCallStep:
-    def __init__(self, id_: str, name: str, arguments: dict[str, Any]) -> None:
+    def __init__(self, name: str, arguments: dict[str, Any]) -> None:
         self.type = "function_call"
-        self.id = id_
         self.name = name
         self.arguments = arguments
 
     def model_dump(self) -> dict[str, Any]:
-        return {"type": self.type, "id": self.id, "name": self.name, "arguments": self.arguments}
+        return {"type": self.type, "name": self.name, "arguments": self.arguments}
 
 
-class FakeOtherStep:
-    """代表 model_output/function_call 以外的其他 step 種類(例如 thought)。"""
+class FakeResponseWithoutSteps:
+    """沒有 steps 屬性,模擬 SDK 回傳非預期型別(例如 streaming)的情境。
 
-    def __init__(self, type_: str = "thought") -> None:
-        self.type = type_
-
-    def model_dump(self) -> dict[str, Any]:
-        return {"type": self.type}
+    真實的 Interaction 一定有 steps 屬性,這裡只是要驗證「resp 不滿足
+    HasSteps」這個分支,不需要對應到真實的 Stream 型別。
+    """
 
 
-class FakeResponse:
-    """結構上滿足 gemini.HasSteps 這個 Protocol。"""
+class FakeResponseWithRawSteps:
+    """結構上滿足 HasSteps,但 steps 內容不是真實的 Step 物件。
+
+    真實的 Interaction.steps 會被 pydantic 驗證,塞不進
+    FakeFunctionCallStepNoId 這種非 Step 型別的假物件,只有在需要驗證
+    「不是真的合法回應」這種情境時才維持用這個手刻的 wrapper。
+    """
 
     def __init__(self, steps: list[Any] | None) -> None:
         self.steps = steps
 
 
-class FakeResponseWithoutSteps:
-    """沒有 steps 屬性,模擬 SDK 回傳非預期型別(例如 streaming)的情境。"""
+def _fake_api_error(status_code: int | None) -> APIError:
+    """建構一個帶指定 status_code 的假 APIError,不需要真的發過 HTTP 請求。"""
+    request = httpx.Request("POST", "https://example.com")
+    err = APIError("模擬 API 錯誤", request, body=None)
+    err.status_code = status_code
+    return err
 
 
 @pytest.fixture(scope="module")
@@ -162,7 +175,9 @@ def test_get_history_skips_role_content_combo_with_no_matching_branch(
 
 
 def test_process_response_model_output_produces_text_block(provider: GeminiProvider) -> None:
-    resp = FakeResponse(steps=[FakeModelOutputStep(content=[FakeContent("text", "你好")])])
+    resp = Interaction(
+        status="completed", steps=[ModelOutputStep(content=[TextContent(text="你好")])]
+    )
 
     content_blocks, provider_data = provider._process_responce(resp)
 
@@ -170,13 +185,15 @@ def test_process_response_model_output_produces_text_block(provider: GeminiProvi
     block = content_blocks[0]
     assert isinstance(block, TextBlock)
     assert block.content == "你好"
-    assert provider_data == [{"type": "model_output"}]
+    assert provider_data[0]["type"] == "model_output"
 
 
 def test_process_response_function_call_produces_tool_use_block(
     provider: GeminiProvider,
 ) -> None:
-    resp = FakeResponse(steps=[FakeFunctionCallStep(id_="1", name="add", arguments={"num1": 1.0})])
+    resp = Interaction(
+        status="completed", steps=[FunctionCallStep(id="1", name="add", arguments={"num1": 1.0})]
+    )
 
     content_blocks, provider_data = provider._process_responce(resp)
 
@@ -189,11 +206,12 @@ def test_process_response_function_call_produces_tool_use_block(
 
 
 def test_process_response_mixed_steps(provider: GeminiProvider) -> None:
-    resp = FakeResponse(
+    resp = Interaction(
+        status="completed",
         steps=[
-            FakeModelOutputStep(content=[FakeContent("text", "先說話")]),
-            FakeFunctionCallStep(id_="1", name="add", arguments={"num1": 1.0}),
-        ]
+            ModelOutputStep(content=[TextContent(text="先說話")]),
+            FunctionCallStep(id="1", name="add", arguments={"num1": 1.0}),
+        ],
     )
 
     content_blocks, provider_data = provider._process_responce(resp)
@@ -205,7 +223,7 @@ def test_process_response_mixed_steps(provider: GeminiProvider) -> None:
 
 
 def test_process_response_no_steps_returns_empty(provider: GeminiProvider) -> None:
-    resp = FakeResponse(steps=None)
+    resp = Interaction(status="completed", steps=None)
 
     content_blocks, provider_data = provider._process_responce(resp)
 
@@ -216,12 +234,12 @@ def test_process_response_no_steps_returns_empty(provider: GeminiProvider) -> No
 def test_process_response_unhandled_step_type_only_recorded_in_provider_data(
     provider: GeminiProvider,
 ) -> None:
-    resp = FakeResponse(steps=[FakeOtherStep(type_="thought")])
+    resp = Interaction(status="completed", steps=[ThoughtStep()])
 
     content_blocks, provider_data = provider._process_responce(resp)
 
     assert content_blocks == []
-    assert provider_data == [{"type": "thought"}]
+    assert provider_data[0]["type"] == "thought"
 
 
 def test_process_tool_info_maps_types_and_required(provider: GeminiProvider) -> None:
@@ -262,9 +280,11 @@ def test_call_sends_history_and_parses_response(
 ) -> None:
     captured_kwargs: dict[str, Any] = {}
 
-    def fake_create(**kwargs: Any) -> FakeResponse:
+    def fake_create(**kwargs: Any) -> Interaction:
         captured_kwargs.update(kwargs)
-        return FakeResponse(steps=[FakeModelOutputStep(content=[FakeContent("text", "回覆內容")])])
+        return Interaction(
+            status="completed", steps=[ModelOutputStep(content=[TextContent(text="回覆內容")])]
+        )
 
     monkeypatch.setattr(provider.client.interactions, "create", fake_create)
 
@@ -279,7 +299,8 @@ def test_call_sends_history_and_parses_response(
     first_block = result.content_blocks[0]
     assert isinstance(first_block, TextBlock)
     assert first_block.content == "回覆內容"
-    assert result.provider_data == [{"type": "model_output"}]
+    assert result.provider_data is not None
+    assert result.provider_data[0]["type"] == "model_output"
 
 
 def test_call_with_response_missing_steps_returns_empty_message(
@@ -297,3 +318,60 @@ def test_call_with_response_missing_steps_returns_empty_message(
 
     assert result.content_blocks == []
     assert result.provider_data == []
+
+
+def test_process_response_generates_fallback_id_when_step_missing_id_attr(
+    provider: GeminiProvider,
+) -> None:
+    """step 上根本沒有 id 這個屬性時(不是 None/空字串),要補一個 fallback id。"""
+    resp = FakeResponseWithRawSteps(
+        steps=[FakeFunctionCallStepNoId(name="add", arguments={"num1": 1.0})]
+    )
+
+    content_blocks, _ = provider._process_responce(resp)
+
+    assert len(content_blocks) == 1
+    block = content_blocks[0]
+    assert isinstance(block, ToolUseBlock)
+    assert block.id.startswith("fallback-")
+
+
+@pytest.mark.parametrize("status_code", [429, 500, 503, None])
+def test_call_classifies_as_retryable(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch, status_code: int | None
+) -> None:
+    def fake_create(**kwargs: Any) -> Any:
+        raise _fake_api_error(status_code)
+
+    monkeypatch.setattr(provider.client.interactions, "create", fake_create)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    with pytest.raises(RetryableLLMError):
+        provider.call(messages)
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 404, 422])
+def test_call_classifies_as_non_retryable(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    def fake_create(**kwargs: Any) -> Any:
+        raise _fake_api_error(status_code)
+
+    monkeypatch.setattr(provider.client.interactions, "create", fake_create)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    with pytest.raises(NonRetryableLLMError):
+        provider.call(messages)
+
+
+def test_call_classification_preserves_original_message(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_create(**kwargs: Any) -> Any:
+        raise _fake_api_error(429)
+
+    monkeypatch.setattr(provider.client.interactions, "create", fake_create)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    with pytest.raises(RetryableLLMError, match="模擬 API 錯誤"):
+        provider.call(messages)

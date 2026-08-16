@@ -12,6 +12,9 @@ from core.interfaces.tool_info_model import ToolInfo
 from typing import Any, Protocol, runtime_checkable
 import json
 from google import genai
+from core.exceptions import RetryableLLMError, NonRetryableLLMError
+from google.genai._gaos.lib.compat_errors import APIError
+import uuid
 
 PYTHON_TYPE_TO_JSON_SCHEMA_TYPE = {
     # 基礎型態
@@ -105,19 +108,28 @@ class GeminiProvider(LLMProvider):
                         content_blocks.append(TextBlock(type="text", content=c.text))
 
             elif step.type == "function_call":
+                tool_use_id = getattr(step, "id", f"fallback-{uuid.uuid4()}")
                 content_blocks.append(
-                    ToolUseBlock(type="tool_use", id=step.id, name=step.name, input=step.arguments)
+                    ToolUseBlock(
+                        type="tool_use", id=tool_use_id, name=step.name, input=step.arguments
+                    )
                 )
         return content_blocks, provider_data
 
     def call(self, messages: list[LlmMessage]) -> LlmMessage:
 
-        resp = self.client.interactions.create(
-            model=self.model,
-            store=False,
-            input=self._get_history(messages),
-            tools=self.native_tool_list,
-        )
+        try:
+            resp = self.client.interactions.create(
+                model=self.model,
+                store=False,
+                input=self._get_history(messages),
+                tools=self.native_tool_list,
+            )
+        except APIError as e:
+            status_code = getattr(e, "status_code", None)
+            if status_code is None or status_code == 429 or status_code >= 500:
+                raise RetryableLLMError(str(e)) from e
+            raise NonRetryableLLMError(str(e)) from e
 
         if isinstance(resp, HasSteps):
             content_blocks, provider_data = self._process_responce(resp)
