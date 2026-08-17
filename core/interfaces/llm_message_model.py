@@ -6,11 +6,13 @@ class TextBlock(BaseModel):
     type: Literal["text"]
     content: str
 
+
 class ToolUseBlock(BaseModel):
     type: Literal["tool_use"]
     id: str
     name: str
     input: dict[str, str | int | float | bool]
+
 
 class ToolResultBlock(BaseModel):
     type: Literal["tool_result"]
@@ -18,6 +20,7 @@ class ToolResultBlock(BaseModel):
     name: str
     is_error: StrictBool
     content: Any
+
 
 ContentBlock = Annotated[
     Union[TextBlock, ToolUseBlock, ToolResultBlock], Field(discriminator="type")
