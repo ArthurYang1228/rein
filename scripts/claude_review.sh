@@ -14,6 +14,11 @@
 ALL_STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 [ -z "$ALL_STAGED" ] && exit 0
 
+# main.py 是本機手動測試用的骨架進入點，不是要交付的邏輯，豁免這項 review。
+# 注意：detect-secrets 仍會照常掃描 main.py，這裡只排除 Claude review。
+ALL_STAGED=$(echo "$ALL_STAGED" | grep -v '^main\.py$')
+[ -z "$ALL_STAGED" ] && exit 0
+
 CODE_FILES=$(echo "$ALL_STAGED" | grep '\.py$')
 
 RESULT=$(claude -p "請依 CLAUDE.md 的規範 review 這次 commit。

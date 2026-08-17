@@ -14,3 +14,21 @@ class UnknownToolError(Exception):
     """嘗試呼叫未知或未註冊工具"""
 
     pass
+
+
+class MaxIterationsExceededError(Exception):
+    """迴圈執行超過上限"""
+
+    pass
+
+
+class RetryableLLMError(Exception):
+    """LLM API呼叫錯誤，可重複嘗試呼叫"""
+
+    pass
+
+
+class NonRetryableLLMError(Exception):
+    """LLM API呼叫錯誤，須停止確認問題"""
+
+    pass

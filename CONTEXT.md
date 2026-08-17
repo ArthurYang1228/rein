@@ -29,7 +29,7 @@ _Avoid_: 審批方式(容易和已棄用的 SessionPolicy 混用)
 ### 事後:結果品質審查
 
 **ResultReviewer**:
-選配的事後審查元件,透過建構子注入 `AgentLoop`(未注入則完全不啟用這一關,不是強制階段)。在 LLM 產生結論時觸發一次(目前以 `stop_reason == "end_turn"` 判斷),讓人類確認產出結果是否符合預期。跟 `ApprovalAction` 是完全獨立的機制且判斷依據不同:`ApprovalAction` 管「要不要讓某個工具呼叫發生」(風險控制,一輪任務可能觸發多次,跟 `RiskLevel` 有關);`ResultReviewer` 管「這輪任務的結論人類看過了嗎」(品質確認,一輪任務只觸發一次,跟 `RiskLevel` 無關)。
+選配的事後審查元件,透過建構子注入 `AgentLoop`(未注入則完全不啟用這一關,不是強制階段)。在 LLM 產生結論時觸發一次(判斷方式見下方 `Message`/`LLMProvider` 條目——`AgentLoop` 檢查回應的 `Message.content` 裡有沒有 `ToolUseBlock`,沒有就代表這輪結束),讓人類確認產出結果是否符合預期。跟 `ApprovalAction` 是完全獨立的機制且判斷依據不同:`ApprovalAction` 管「要不要讓某個工具呼叫發生」(風險控制,一輪任務可能觸發多次,跟 `RiskLevel` 有關);`ResultReviewer` 管「這輪任務的結論人類看過了嗎」(品質確認,一輪任務只觸發一次,跟 `RiskLevel` 無關)。「LLM 給的純文字是在問人類問題還是任務做完了」這件事,`AgentLoop` 不區分,留給 `ResultReviewer`(或沒有它時,呼叫端)自己判讀。
 _Avoid_: HITL(泛稱,不夠精確,容易跟 `ApprovalAction` 混用)
 
 **ReviewVerdict**:
@@ -68,5 +68,28 @@ _Avoid_: 跟 `ToolRegistry` 混用——`ToolCatalog` 是宇宙全集(來源),`T
 **ToolRegistry**:
 依一份工具名稱列表,從 `ToolCatalog` **篩選**出對應子集合的元件,不會重新實例化工具(工具早在 `ToolCatalog` 填入時就是完成品)。不同 agent 可各自建立自己的 `ToolRegistry`,篩出不同子集合,彼此獨立,共用同一份 `ToolCatalog` 不會重複付出自省成本。名稱列表裡若有 `ToolCatalog` 找不到的名字,直接拋錯,不靜默略過。
 
-**ConsecutiveFailureLimit**:
-同一個工具呼叫連續驗證失敗(pydantic 驗證 LLM 給的參數不過)達上限次數時觸發的計數器,跟 `max_iterations`(整個 `AgentLoop` 的總輪數上限)是不同維度——`max_iterations` 管整體別跑太久,`ConsecutiveFailureLimit` 管別卡在同一個壞掉的呼叫上、把整體預算燒光。達上限時把「已達重試上限」的訊息塞回 message history,`AgentLoop` 不中斷、也不升級成人工確認——驗證失敗代表工具根本沒真的執行,沒有安全疑慮,只是沒效率,性質上歸 `CostMonitor` 的範疇而非 `RiskClassifier`。人類拒絕(`ApprovalAction` 的 deny)與參數驗證失敗,共用同一套「失敗結果塞回 message history、不中斷迴圈」的回饋機制。
+**TotalFailureLimit**:
+整個 `AgentLoop` session 範圍、**全域單一**的工具呼叫失敗計數器(不分是哪個工具),任何一次 `ToolExecutionError` 就累加 1,**不會**因為中間穿插了幾次成功就重置(即使 A 失敗 → A 之後成功 → B 失敗,一樣算 2 次)。跟 `max_iterations`(整個 `AgentLoop` 的總輪數上限)是不同維度——`max_iterations` 管整體別跑太久,`TotalFailureLimit` 管「這個 session 累積下來是不是一直在出錯」。達上限時把「已達重試上限」的訊息塞回 message history,`AgentLoop` 不中斷、也不升級成人工確認——驗證失敗代表工具根本沒真的執行,沒有安全疑慮,只是沒效率,性質上歸 `CostMonitor` 的範疇而非 `RiskClassifier`。人類拒絕(`ApprovalAction` 的 deny)與參數驗證失敗,共用同一套「失敗結果塞回 message history、不中斷迴圈」的回饋機制。
+_Avoid_: `ConsecutiveFailureLimit`(討論中曾用過的舊名,已確認不重置、也不分工具各自計數,不是「連續」的概念,改用更準確的 `TotalFailureLimit`)。
+_已知取捨_:完全不重置代表一個很長、整體健康的 session,可能單純因為輪數夠多、偶爾出現幾次無傷大雅的失誤就被慢慢累加到觸發上限——這是刻意先簡化的 MVP 選擇(YAGNI),真的遇到這個問題再回來加重置機制(例如連續 N 次成功才重置)。
+
+### AgentLoop 與 LLMProvider
+
+**Message**:
+`AgentLoop` 維護對話歷史用的中性 pydantic model(`role: "user" | "assistant"`、`content: list[ContentBlock]`),完全不依賴任何 LLM 廠商 SDK 的原生訊息格式。`LLMProvider` 的每個 adapter 負責把 `list[Message]` 轉換成自己 SDK 要的格式送出去,再把原生回應轉換回一個 `Message`(`role="assistant"`)回傳——`AgentLoop` 只操作這組中性 model,不知道也不需要知道現在接的是哪一家。
+
+**ContentBlock**:
+`Message.content` 裡每一個區塊的判別聯集(discriminated union,以 `type` 欄位區分),值是以下三種之一:
+- `TextBlock`——純文字內容
+- `ToolUseBlock`——LLM 要求呼叫工具,帶 `id`(這次呼叫的唯一識別碼)、`name`(對應 `ToolInfo.name`)、`input`(未驗證的原始參數)
+- `ToolResultBlock`——工具執行完的結果,帶 `tool_use_id`(對應回是哪一次 `ToolUseBlock`)、`is_error`(成功或失敗)、`content`(結果或錯誤訊息)
+
+**LLMProvider**:
+呼叫 LLM 的抽象介面,`call(messages: list[Message], tools: list[ToolInfo]) -> Message`。**刻意不設計正規化的 `stop_reason`/`finish_reason` 欄位**——查證過 Gemini API 的 `finishReason`,確認即使回應包含 `function_call`,`finishReason` 通常還是 `STOP`,不像 Anthropic 用 `end_turn`/`tool_use` 兩個獨立值明確區分。既然連 Gemini 自己的原生欄位都無法只靠它判斷有沒有工具呼叫,`AgentLoop` 統一改成直接檢查回傳 `Message.content` 裡有沒有任何 `ToolUseBlock`:有,代表要繼續執行工具;沒有(只有 `TextBlock`),代表這輪結束。兩家 provider 都適用同一套判斷邏輯,不用為 Gemini 額外維護一個不可靠的正規化欄位。
+_Avoid_: `stop_reason`/`finish_reason` 作為 `LLMProvider` 回傳值的一部分——這個欄位不存在於這次的設計裡。
+
+**MaxIterationsExceededError**:
+`AgentLoop.run()` 超過 `max_iterations` 輪仍未得到純文字結論時拋出的例外,不會悄悄回傳目前累積的部分結果——迴圈超過整體輪數上限,代表流程本身可能有問題,應該讓呼叫端(未來的 CLI 或更上層邏輯)明確處理,而不是靜默降級。跟 `TotalFailureLimit` 是不同機制:`max_iterations` 管整體別跑太久且達上限直接中止,`TotalFailureLimit` 管失敗次數但達上限不中止、只是提示。
+
+**LLMProviderError**:
+`LLMProvider` 呼叫 LLM API 本身失敗時(不是工具執行失敗)拋出的例外基底類別,底下分 `RetryableLLMError`(網路逾時、rate limit、伺服器錯誤——重打一次可能成功)與 `NonRetryableLLMError`(API key 無效、請求格式錯誤、內容被安全機制擋掉——重試也不會成功)。各 `LLMProvider` adapter 負責把自己 SDK 的原生例外分類轉換成這兩種之一,`AgentLoop`/呼叫端不需要認得任何 SDK 原生例外類別。這次只做「分類 + 拋出正確類別」,不做自動重試(重試邏輯留給呼叫端或之後有需要時再加),也還沒串接 `EventBus`(`EventBus` 本身尚未實作)。
