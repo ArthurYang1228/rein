@@ -34,6 +34,7 @@ credentials.json
 service-account*.json
 secrets.yaml
 secrets.yml
+key.json
 
 # Claude Code local (personal) settings — settings.json itself is shared/tracked
 .claude/settings.local.json

@@ -75,6 +75,12 @@ class FakeLLMProvider(LLMProvider):
         self.call_count += 1
         return response
 
+    def count_tokens(self, messages: list[LlmMessage]) -> int:
+        return 0
+
+    def get_max_context_tokens(self) -> int:
+        return 1_000_000
+
 
 class FakeFlakyLLMProvider(LLMProvider):
     """在成功前依序拋出指定的例外,用來測試 AgentLoop 的重試邏輯。"""
@@ -101,6 +107,12 @@ class FakeFlakyLLMProvider(LLMProvider):
 
         self.call_count += 1
         return self._final_response
+
+    def count_tokens(self, messages: list[LlmMessage]) -> int:
+        return 0
+
+    def get_max_context_tokens(self) -> int:
+        return 1_000_000
 
 
 def _text_response(content: str) -> LlmMessage:

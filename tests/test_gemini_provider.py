@@ -12,6 +12,7 @@ FakeFunctionCallStepNoId/FakeResponseWithoutSteps/FakeResponseWithRawSteps 是
 pydantic 驗證成真正的 Step),沒辦法用真實物件表達,才維持手刻。
 """
 
+import json
 from typing import Any
 
 import httpx
@@ -32,6 +33,7 @@ from google.genai._gaos.types.interactions.interaction import Interaction
 from google.genai._gaos.types.interactions.modeloutputstep import ModelOutputStep
 from google.genai._gaos.types.interactions.textcontent import TextContent
 from google.genai._gaos.types.interactions.thoughtstep import ThoughtStep
+from google.genai.types import CountTokensResponse, Model
 
 
 class FakeFunctionCallStepNoId:
@@ -294,6 +296,7 @@ def test_call_sends_history_and_parses_response(
     assert captured_kwargs["input"] == [
         {"type": "user_input", "content": [{"type": "text", "text": "你好"}]}
     ]
+    assert captured_kwargs["system_instruction"] == provider.system_prompt
     assert isinstance(result, LlmMessage)
     assert result.role == "llm"
     first_block = result.content_blocks[0]
@@ -301,6 +304,43 @@ def test_call_sends_history_and_parses_response(
     assert first_block.content == "回覆內容"
     assert result.provider_data is not None
     assert result.provider_data[0]["type"] == "model_output"
+
+
+def test_call_sends_configured_system_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """system_prompt 真的會被帶進 system_instruction,不是永遠固定的空字串。"""
+    provider = GeminiProvider(
+        tool_info_list=[],
+        system_prompt="請用繁體中文回答",
+        api_key="fake-key-for-testing",
+    )
+    captured_kwargs: dict[str, Any] = {}
+
+    def fake_create(**kwargs: Any) -> Interaction:
+        captured_kwargs.update(kwargs)
+        return Interaction(status="completed", steps=[])
+
+    monkeypatch.setattr(provider.client.interactions, "create", fake_create)
+
+    provider.call([LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="嗨")])])
+
+    assert captured_kwargs["system_instruction"] == "請用繁體中文回答"
+
+
+def test_init_falls_back_to_default_client_when_api_key_is_empty_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """api_key 是空字串時,視同沒提供,退回 genai.Client() 無參數建構。"""
+    captured_kwargs: dict[str, Any] = {}
+
+    def fake_client(**kwargs: Any) -> object:
+        captured_kwargs.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("adapters.providers.gemini.genai.Client", fake_client)
+
+    GeminiProvider(tool_info_list=[], api_key="")
+
+    assert captured_kwargs == {}
 
 
 def test_call_with_response_missing_steps_returns_empty_message(
@@ -375,3 +415,129 @@ def test_call_classification_preserves_original_message(
     messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
     with pytest.raises(RetryableLLMError, match="模擬 API 錯誤"):
         provider.call(messages)
+
+
+def test_count_tokens_returns_total_tokens(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_count_tokens(**kwargs: Any) -> CountTokensResponse:
+        return CountTokensResponse(total_tokens=42)
+
+    monkeypatch.setattr(provider.client.models, "count_tokens", fake_count_tokens)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    assert provider.count_tokens(messages) == 42
+
+
+def test_count_tokens_payload_includes_system_prompt_history_and_tools(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    def fake_count_tokens(**kwargs: Any) -> CountTokensResponse:
+        captured_kwargs.update(kwargs)
+        return CountTokensResponse(total_tokens=1)
+
+    monkeypatch.setattr(provider.client.models, "count_tokens", fake_count_tokens)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    provider.count_tokens(messages)
+
+    payload = captured_kwargs["contents"]
+    assert isinstance(payload, str)
+    # json.dumps 預設會把非 ASCII 字元轉義成 \uXXXX,解析回來再用 ensure_ascii=False
+    # 重新序列化,才能用中文字面比對,不會被逃逸序列誤判成「找不到」。
+    parsed = json.loads(payload)
+    flattened = json.dumps(parsed, ensure_ascii=False)
+    assert "你好" in flattened
+    assert "add" in flattened  # 來自 provider fixture 註冊的工具名稱
+
+
+def test_count_tokens_raises_when_total_tokens_missing(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_count_tokens(**kwargs: Any) -> CountTokensResponse:
+        return CountTokensResponse(total_tokens=None)
+
+    monkeypatch.setattr(provider.client.models, "count_tokens", fake_count_tokens)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    with pytest.raises(ValueError):
+        provider.count_tokens(messages)
+
+
+def test_get_max_context_tokens_returns_input_token_limit(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_get(**kwargs: Any) -> Model:
+        return Model(input_token_limit=1_000_000)
+
+    monkeypatch.setattr(provider.client.models, "get", fake_get)
+
+    assert provider.get_max_context_tokens() == 1_000_000
+
+
+def test_get_max_context_tokens_raises_when_input_token_limit_missing(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_get(**kwargs: Any) -> Model:
+        return Model()
+
+    monkeypatch.setattr(provider.client.models, "get", fake_get)
+
+    with pytest.raises(ValueError):
+        provider.get_max_context_tokens()
+
+
+@pytest.mark.parametrize("status_code", [429, 500, None])
+def test_count_tokens_classifies_as_retryable(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch, status_code: int | None
+) -> None:
+    def fake_count_tokens(**kwargs: Any) -> Any:
+        raise _fake_api_error(status_code)
+
+    monkeypatch.setattr(provider.client.models, "count_tokens", fake_count_tokens)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    with pytest.raises(RetryableLLMError):
+        provider.count_tokens(messages)
+
+
+@pytest.mark.parametrize("status_code", [400, 401])
+def test_count_tokens_classifies_as_non_retryable(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    def fake_count_tokens(**kwargs: Any) -> Any:
+        raise _fake_api_error(status_code)
+
+    monkeypatch.setattr(provider.client.models, "count_tokens", fake_count_tokens)
+
+    messages = [LlmMessage(role="user", content_blocks=[TextBlock(type="text", content="你好")])]
+    with pytest.raises(NonRetryableLLMError):
+        provider.count_tokens(messages)
+
+
+@pytest.mark.parametrize("status_code", [429, 500, None])
+def test_get_max_context_tokens_classifies_as_retryable(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch, status_code: int | None
+) -> None:
+    def fake_get(**kwargs: Any) -> Any:
+        raise _fake_api_error(status_code)
+
+    monkeypatch.setattr(provider.client.models, "get", fake_get)
+
+    with pytest.raises(RetryableLLMError):
+        provider.get_max_context_tokens()
+
+
+@pytest.mark.parametrize("status_code", [400, 401])
+def test_get_max_context_tokens_classifies_as_non_retryable(
+    provider: GeminiProvider, monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    def fake_get(**kwargs: Any) -> Any:
+        raise _fake_api_error(status_code)
+
+    monkeypatch.setattr(provider.client.models, "get", fake_get)
+
+    with pytest.raises(NonRetryableLLMError):
+        provider.get_max_context_tokens()
