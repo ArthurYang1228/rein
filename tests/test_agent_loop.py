@@ -70,12 +70,17 @@ class FakeLLMProvider(LLMProvider):
     def _process_tool_info_list(self, tool_info_list: list[ToolInfo]) -> list[ToolInfo]:
         return tool_info_list
 
-    def call(self, messages: list[LlmMessage]) -> LlmMessage:
+    def call(
+        self,
+        messages: list[LlmMessage],
+        system_prompt: str | None = None,
+        tool_info_list: list[ToolInfo] | None = None,
+    ) -> LlmMessage:
         response = self._responses[min(self.call_count, len(self._responses) - 1)]
         self.call_count += 1
         return response
 
-    def count_tokens(self, messages: list[LlmMessage]) -> int:
+    def count_tokens(self, messages: list[LlmMessage], only_user_prompt: bool = False) -> int:
         return 0
 
     def get_max_context_tokens(self) -> int:
@@ -99,7 +104,12 @@ class FakeFlakyLLMProvider(LLMProvider):
     def _process_tool_info_list(self, tool_info_list: list[ToolInfo]) -> list[ToolInfo]:
         return tool_info_list
 
-    def call(self, messages: list[LlmMessage]) -> LlmMessage:
+    def call(
+        self,
+        messages: list[LlmMessage],
+        system_prompt: str | None = None,
+        tool_info_list: list[ToolInfo] | None = None,
+    ) -> LlmMessage:
         if self.call_count < len(self._exceptions):
             exc = self._exceptions[self.call_count]
             self.call_count += 1
@@ -108,7 +118,7 @@ class FakeFlakyLLMProvider(LLMProvider):
         self.call_count += 1
         return self._final_response
 
-    def count_tokens(self, messages: list[LlmMessage]) -> int:
+    def count_tokens(self, messages: list[LlmMessage], only_user_prompt: bool = False) -> int:
         return 0
 
     def get_max_context_tokens(self) -> int:

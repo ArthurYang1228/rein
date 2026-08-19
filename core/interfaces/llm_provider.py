@@ -20,9 +20,15 @@ class LLMProvider(ABC):
         self.native_tool_list: list[Any] = self._process_tool_info_list(tool_info_list)
 
     @abstractmethod
-    def call(self, messages: list[LlmMessage]) -> LlmMessage:
+    def call(
+        self,
+        messages: list[LlmMessage],
+        system_prompt: str | None = None,
+        tool_info_list: list[ToolInfo] | None = None,
+    ) -> LlmMessage:
         """
         呼叫 LLM 取得回覆
+        only_user_prompt: 不含系統提示和工具訊息的呼叫
         """
         pass
 
@@ -31,7 +37,7 @@ class LLMProvider(ABC):
         pass
 
     @abstractmethod
-    def count_tokens(self, messages: list[LlmMessage]) -> int:
+    def count_tokens(self, messages: list[LlmMessage], only_user_prompt: bool = False) -> int:
         """
         計算歷史訊息使用token數
         """

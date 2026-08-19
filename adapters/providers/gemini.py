@@ -131,7 +131,12 @@ class GeminiProvider(LLMProvider):
             return RetryableLLMError(str(e))
         return NonRetryableLLMError(str(e))
 
-    def call(self, messages: list[LlmMessage]) -> LlmMessage:
+    def call(
+        self,
+        messages: list[LlmMessage],
+        system_prompt: str | None = None,
+        tool_info_list: list[ToolInfo] | None = None,
+    ) -> LlmMessage:
         """
         呼叫 LLM 取得回覆
         """
@@ -141,8 +146,10 @@ class GeminiProvider(LLMProvider):
                 model=self.model,
                 store=False,
                 input=self._get_history(messages),
-                tools=self.native_tool_list,
-                system_instruction=self.system_prompt,
+                tools=self.native_tool_list
+                if tool_info_list is None
+                else self._process_tool_info_list(tool_info_list),
+                system_instruction=self.system_prompt if system_prompt is None else system_prompt,
             )
         except APIError as e:
             raise self._classify_api_error(e) from e
@@ -179,14 +186,15 @@ class GeminiProvider(LLMProvider):
     def _process_tool_info_list(self, tool_info_list: list[ToolInfo]) -> list[dict[str, Any]]:
         return [self._process_tool_info(tool_info) for tool_info in tool_info_list]
 
-    def count_tokens(self, messages: list[LlmMessage]) -> int:
+    def count_tokens(self, messages: list[LlmMessage], only_user_prompt: bool = False) -> int:
         """
         計算歷史訊息使用token數
         """
 
-        contents: list[str | dict[str, Any]] = [self.system_prompt]
-        contents.extend(self._get_history(messages))
-        contents.extend(self.native_tool_list)
+        contents: list[str | dict[str, Any]] = list(self._get_history(messages))
+        if not only_user_prompt:
+            contents.append(self.system_prompt)
+            contents.extend(self.native_tool_list)
 
         try:
             resp = self.client.models.count_tokens(model=self.model, contents=json.dumps(contents))

@@ -11,6 +11,7 @@ from core.interfaces.llm_provider import LLMProvider
 from core.interfaces.session_store import SessionStore
 from core.interfaces.tool import Tool
 from core.interfaces.tool_info_model import ParamInfo, ToolInfo
+from core.interfaces.context_manage import ContextManager
 
 __all__ = [
     "ContentBlock",
@@ -23,4 +24,5 @@ __all__ = [
     "ToolInfo",
     "ToolResultBlock",
     "ToolUseBlock",
+    "ContextManager",
 ]
