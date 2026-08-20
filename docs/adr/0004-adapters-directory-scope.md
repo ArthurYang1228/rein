@@ -9,7 +9,7 @@
 決定:
 
 1. `ContextManager` 保留抽象介面,但理由是「`AgentLoop` 自己的測試需要塞 `FakeContextManager`」(具體、現在就存在的需求),不是「未來可能有多種策略」。
-2. 具體的策略實作維持放在 `core/`(套件形式:`core/context_manager/` 底下分介面與策略檔案),不歸類進 `adapters/`。
+2. 具體的策略實作維持放在 `core/`,不歸類進 `adapters/`。抽象介面 `ContextManager` 跟其他介面一樣放在 `core/interfaces/context_manage.py`;具體策略實作另開 `core/context_manage/` 套件(`MainContextManager`)。
 
 ## Considered Options
 

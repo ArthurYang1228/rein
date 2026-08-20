@@ -10,6 +10,7 @@ from core.exceptions import (
     ToolExecutionError,
     UnknownToolError,
 )
+from core.interfaces.context_manage import ContextManager
 from core.interfaces.llm_message_model import (
     LlmMessage,
     TextBlock,
@@ -62,8 +63,14 @@ class FakeFailingTool(Tool):
 class FakeLLMProvider(LLMProvider):
     """依序回放預先寫好的回應,不打真實 LLM API。"""
 
-    def __init__(self, tool_info_list: list[ToolInfo], responses: list[LlmMessage]) -> None:
+    def __init__(
+        self,
+        tool_info_list: list[ToolInfo],
+        responses: list[LlmMessage],
+        call_order: list[str] | None = None,
+    ) -> None:
         self._responses = responses
+        self.call_order = call_order
         self.call_count = 0
         super().__init__(tool_info_list)
 
@@ -76,6 +83,8 @@ class FakeLLMProvider(LLMProvider):
         system_prompt: str | None = None,
         tool_info_list: list[ToolInfo] | None = None,
     ) -> LlmMessage:
+        if self.call_order is not None:
+            self.call_order.append("call")
         response = self._responses[min(self.call_count, len(self._responses) - 1)]
         self.call_count += 1
         return response
@@ -125,6 +134,31 @@ class FakeFlakyLLMProvider(LLMProvider):
         return 1_000_000
 
 
+class FakeContextManager(ContextManager):
+    """記錄呼叫次數/收到的訊息/呼叫順序,可設定某次呼叫要回傳的替代清單。
+
+    預設(沒有設定 override)直接原封不動放行,行為等同「不需要壓縮」。
+    """
+
+    def __init__(
+        self,
+        override_at_call: dict[int, list[LlmMessage]] | None = None,
+        call_order: list[str] | None = None,
+    ) -> None:
+        self._override_at_call = override_at_call or {}
+        self.call_order = call_order
+        self.call_count = 0
+        self.received_messages: list[list[LlmMessage]] = []
+
+    def maybe_compact(self, messages: list[LlmMessage]) -> list[LlmMessage]:
+        if self.call_order is not None:
+            self.call_order.append("compact")
+        self.received_messages.append(messages)
+        result = self._override_at_call.get(self.call_count, messages)
+        self.call_count += 1
+        return result
+
+
 def _text_response(content: str) -> LlmMessage:
     return LlmMessage(role="llm", content_blocks=[TextBlock(type="text", content=content)])
 
@@ -154,7 +188,9 @@ def test_run_returns_text_response_with_single_call() -> None:
     ToolCatalog.register(FakeAddTool())
     registry = ToolRegistry(["add"])
     provider = FakeLLMProvider(registry.get_all_tool_info(), [_text_response("done")])
-    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry)
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, context_manager=FakeContextManager()
+    )
 
     result = loop.run("hello")
 
@@ -174,7 +210,9 @@ def test_run_executes_tool_then_returns_final_response() -> None:
             _text_response("3"),
         ],
     )
-    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry)
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, context_manager=FakeContextManager()
+    )
 
     result = loop.run("請幫我算 1+2")
 
@@ -198,7 +236,13 @@ def test_run_raises_when_max_iterations_exceeded() -> None:
         registry.get_all_tool_info(),
         [_tool_use_response("1", "add", {"num1": 1, "num2": 2})],
     )
-    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry, max_iterations=3)
+    loop = AgentLoop(
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        max_iterations=3,
+    )
 
     with pytest.raises(MaxIterationsExceededError):
         loop.run("一直呼叫工具")
@@ -213,7 +257,9 @@ def test_run_raises_unknown_tool_error_when_tool_not_registered() -> None:
         registry.get_all_tool_info(),
         [_tool_use_response("1", "does-not-exist", {})],
     )
-    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry)
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, context_manager=FakeContextManager()
+    )
 
     with pytest.raises(UnknownToolError):
         loop.run("呼叫未註冊的工具")
@@ -231,7 +277,13 @@ def test_run_short_circuits_tool_execution_after_total_failure_limit() -> None:
             _text_response("done"),
         ],
     )
-    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry, total_failure_limit=1)
+    loop = AgentLoop(
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        total_failure_limit=1,
+    )
 
     result = loop.run("一直呼叫會失敗的工具")
 
@@ -265,7 +317,13 @@ def test_run_total_failure_count_is_not_reset_by_an_intervening_success() -> Non
             _text_response("done"),
         ],
     )
-    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry, total_failure_limit=3)
+    loop = AgentLoop(
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        total_failure_limit=3,
+    )
 
     loop.run("先失敗、再成功、再失敗")
 
@@ -306,7 +364,13 @@ def test_run_groups_multiple_tool_results_in_one_message_after_limit_reached() -
             _text_response("done"),
         ],
     )
-    loop = AgentLoop(llm=provider, messages=[], tool_registry=registry, total_failure_limit=1)
+    loop = AgentLoop(
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        total_failure_limit=1,
+    )
 
     loop.run("一次要求呼叫兩個工具,其中一個已經達上限")
 
@@ -332,7 +396,12 @@ def test_run_retries_on_retryable_llm_error_then_succeeds() -> None:
         final_response=_text_response("done"),
     )
     loop = AgentLoop(
-        llm=provider, messages=[], tool_registry=registry, max_llm_retries=5, retry_wait_second=0
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        max_llm_retries=5,
+        retry_wait_second=0,
     )
 
     result = loop.run("hello")
@@ -352,7 +421,12 @@ def test_run_raises_after_exhausting_llm_retries() -> None:
         final_response=_text_response("done"),
     )
     loop = AgentLoop(
-        llm=provider, messages=[], tool_registry=registry, max_llm_retries=2, retry_wait_second=0
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        max_llm_retries=2,
+        retry_wait_second=0,
     )
 
     with pytest.raises(RetryableLLMError):
@@ -374,6 +448,7 @@ def test_run_llm_retries_do_not_consume_max_iterations() -> None:
         llm=provider,
         messages=[],
         tool_registry=registry,
+        context_manager=FakeContextManager(),
         max_iterations=1,
         max_llm_retries=5,
         retry_wait_second=0,
@@ -396,7 +471,12 @@ def test_run_propagates_non_retryable_llm_error_immediately() -> None:
         final_response=_text_response("done"),
     )
     loop = AgentLoop(
-        llm=provider, messages=[], tool_registry=registry, max_llm_retries=5, retry_wait_second=0
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        max_llm_retries=5,
+        retry_wait_second=0,
     )
 
     with pytest.raises(NonRetryableLLMError):
@@ -404,3 +484,52 @@ def test_run_propagates_non_retryable_llm_error_immediately() -> None:
 
     # 不該重試,只呼叫一次
     assert provider.call_count == 1
+
+
+def test_run_calls_maybe_compact_once_per_iteration_before_each_llm_call() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    call_order: list[str] = []
+    provider = FakeLLMProvider(
+        registry.get_all_tool_info(),
+        [
+            _tool_use_response("1", "add", {"num1": 1, "num2": 2}),
+            _text_response("done"),
+        ],
+        call_order=call_order,
+    )
+    context_manager = FakeContextManager(call_order=call_order)
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, context_manager=context_manager
+    )
+
+    loop.run("請幫我算 1+2")
+
+    assert context_manager.call_count == provider.call_count == 2
+    # 每一輪都必須先 compact 才呼叫 LLM,不能反過來或漏掉任何一輪
+    assert call_order == ["compact", "call", "compact", "call"]
+
+
+def test_run_uses_messages_returned_by_context_manager_not_the_original() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    provider = FakeLLMProvider(registry.get_all_tool_info(), [_text_response("done")])
+    summary_message = LlmMessage(
+        role="user", content_blocks=[TextBlock(type="text", content="<過去對話摘要>")]
+    )
+    context_manager = FakeContextManager(override_at_call={0: [summary_message]})
+    loop = AgentLoop(
+        llm=provider, messages=[], tool_registry=registry, context_manager=context_manager
+    )
+
+    loop.run("hello")
+
+    # maybe_compact 收到的是壓縮前、含原始使用者訊息的清單
+    first_call_input = context_manager.received_messages[0]
+    assert len(first_call_input) == 1
+    original_first_block = first_call_input[0].content_blocks[0]
+    assert isinstance(original_first_block, TextBlock)
+    assert original_first_block.content == "hello"
+
+    # 但後續(呼叫 LLM、加入回覆)實際採用的是 maybe_compact 回傳的新清單,不是原始清單
+    assert loop.messages[0] is summary_message

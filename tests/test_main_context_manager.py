@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 
-from core.content_manage.main_content_manager import MainContextManager
+from core.context_manage.main_context_manager import MainContextManager
 from core.exceptions import NonRetryableLLMError, RetryableLLMError
 from core.interfaces.llm_message_model import LlmMessage, TextBlock, ToolResultBlock, ToolUseBlock
 from core.interfaces.llm_provider import LLMProvider

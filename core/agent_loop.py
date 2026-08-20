@@ -2,7 +2,7 @@
 
 from core.interfaces.llm_message_model import LlmMessage, TextBlock, ToolResultBlock, ContentBlock
 from core.tool_registry import ToolRegistry
-from core.interfaces import LLMProvider
+from core.interfaces import LLMProvider, ContextManager
 from typing import Optional
 from dataclasses import dataclass, field
 from core.exceptions import MaxIterationsExceededError, ToolExecutionError
@@ -20,6 +20,7 @@ class AgentLoop:
 
     llm: LLMProvider
     tool_registry: ToolRegistry
+    context_manager: ContextManager
     messages: list[LlmMessage] = field(default_factory=list)
     max_iterations: int = field(default=10)
     total_failure_limit: int = field(default=10)
@@ -37,6 +38,7 @@ class AgentLoop:
         tool_failure_count = 0
         while iter_count < self.max_iterations:
             iter_count += 1
+            self.messages = self.context_manager.maybe_compact(self.messages)
 
             curr_max_llm_retries = 0
             while True:
