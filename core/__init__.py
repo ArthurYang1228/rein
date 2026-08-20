@@ -1,9 +1,10 @@
 """core 套件:agent runtime 的核心邏輯與抽象介面。"""
 
 from core.agent_loop import AgentLoop
-from core.context_manager import ContextManager
+from core.context_manage.main_context_manager import MainContextManager
 from core.cost_monitor import CostMonitor
 from core.event_bus import EventBus
+from core.interfaces.context_manage import ContextManager
 from core.interfaces.llm_provider import LLMProvider
 from core.interfaces.session_store import SessionStore
 from core.interfaces.tool import Tool
@@ -17,6 +18,7 @@ __all__ = [
     "CostMonitor",
     "EventBus",
     "LLMProvider",
+    "MainContextManager",
     "PermissionManager",
     "RiskClassifier",
     "SessionStore",

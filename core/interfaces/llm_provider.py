@@ -14,15 +14,38 @@ class LLMProvider(ABC):
     確保測試時能以 FakeProvider 替換(依賴反轉原則)。
     """
 
-    def __init__(self, tool_info_list: list[ToolInfo], sys_prompt: str = "") -> None:
-        self.sys_prompt: str = sys_prompt
+    def __init__(self, tool_info_list: list[ToolInfo], system_prompt: str = "") -> None:
+        self.system_prompt: str = system_prompt
         self.tool_info_list: list[ToolInfo] = tool_info_list
         self.native_tool_list: list[Any] = self._process_tool_info_list(tool_info_list)
 
     @abstractmethod
-    def call(self, messages: list[LlmMessage]) -> LlmMessage:
+    def call(
+        self,
+        messages: list[LlmMessage],
+        system_prompt: str | None = None,
+        tool_info_list: list[ToolInfo] | None = None,
+    ) -> LlmMessage:
+        """
+        呼叫 LLM 取得回覆
+        only_user_prompt: 不含系統提示和工具訊息的呼叫
+        """
         pass
 
     @abstractmethod
     def _process_tool_info_list(self, tool_info_list: list[ToolInfo]) -> Any:
+        pass
+
+    @abstractmethod
+    def count_tokens(self, messages: list[LlmMessage], only_user_prompt: bool = False) -> int:
+        """
+        計算歷史訊息使用token數
+        """
+        pass
+
+    @abstractmethod
+    def get_max_context_tokens(self) -> int:
+        """
+        取得模型最大token數
+        """
         pass

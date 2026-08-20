@@ -41,12 +41,16 @@ class GeminiProvider(LLMProvider):
     def __init__(
         self,
         tool_info_list: list[ToolInfo],
-        sys_prompt: str = "",
+        system_prompt: str = "",
         api_key: str | None = None,
         model: str = "gemini-3.5-flash",
     ):
-        super().__init__(tool_info_list, sys_prompt)
-        self.client = genai.Client(api_key=api_key)
+        super().__init__(tool_info_list, system_prompt)
+        self.native_tool_list: list[dict[str, Any]]
+        if api_key != "" and api_key is not None:
+            self.client = genai.Client(api_key=api_key)
+        else:
+            self.client = genai.Client()
         self.model = model
 
     def _get_history(self, messages: list[LlmMessage]) -> list[dict[str, Any]]:
@@ -116,20 +120,39 @@ class GeminiProvider(LLMProvider):
                 )
         return content_blocks, provider_data
 
-    def call(self, messages: list[LlmMessage]) -> LlmMessage:
+    def _classify_api_error(self, e: APIError) -> RetryableLLMError | NonRetryableLLMError:
+        """把 SDK 的 APIError 分類成可重試或不可重試的例外。
+
+        網路逾時/rate limit/伺服器錯誤(含 status_code 缺失)視為可重試,
+        其餘(API key 無效、請求格式錯誤等)視為不可重試。
+        """
+        status_code = getattr(e, "status_code", None)
+        if status_code is None or status_code == 429 or status_code >= 500:
+            return RetryableLLMError(str(e))
+        return NonRetryableLLMError(str(e))
+
+    def call(
+        self,
+        messages: list[LlmMessage],
+        system_prompt: str | None = None,
+        tool_info_list: list[ToolInfo] | None = None,
+    ) -> LlmMessage:
+        """
+        呼叫 LLM 取得回覆
+        """
 
         try:
             resp = self.client.interactions.create(
                 model=self.model,
                 store=False,
                 input=self._get_history(messages),
-                tools=self.native_tool_list,
+                tools=self.native_tool_list
+                if tool_info_list is None
+                else self._process_tool_info_list(tool_info_list),
+                system_instruction=self.system_prompt if system_prompt is None else system_prompt,
             )
         except APIError as e:
-            status_code = getattr(e, "status_code", None)
-            if status_code is None or status_code == 429 or status_code >= 500:
-                raise RetryableLLMError(str(e)) from e
-            raise NonRetryableLLMError(str(e)) from e
+            raise self._classify_api_error(e) from e
 
         if isinstance(resp, HasSteps):
             content_blocks, provider_data = self._process_responce(resp)
@@ -160,5 +183,40 @@ class GeminiProvider(LLMProvider):
             },
         }
 
-    def _process_tool_info_list(self, tool_info_list: list[ToolInfo]) -> Any:
+    def _process_tool_info_list(self, tool_info_list: list[ToolInfo]) -> list[dict[str, Any]]:
         return [self._process_tool_info(tool_info) for tool_info in tool_info_list]
+
+    def count_tokens(self, messages: list[LlmMessage], only_user_prompt: bool = False) -> int:
+        """
+        計算歷史訊息使用token數
+        """
+
+        contents: list[str | dict[str, Any]] = list(self._get_history(messages))
+        if not only_user_prompt:
+            contents.append(self.system_prompt)
+            contents.extend(self.native_tool_list)
+
+        try:
+            resp = self.client.models.count_tokens(model=self.model, contents=json.dumps(contents))
+        except APIError as e:
+            raise self._classify_api_error(e) from e
+
+        if resp.total_tokens is None:
+            raise ValueError("沒有回報 total_tokens")
+
+        return resp.total_tokens
+
+    def get_max_context_tokens(self) -> int:
+        """
+        取得模型最大token數
+        """
+
+        try:
+            model_info = self.client.models.get(model=self.model)
+        except APIError as e:
+            raise self._classify_api_error(e) from e
+
+        if model_info.input_token_limit is None:
+            raise ValueError(f"模型 {self.model} 沒有回報 input_token_limit")
+
+        return model_info.input_token_limit

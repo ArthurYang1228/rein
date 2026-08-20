@@ -43,8 +43,20 @@ _Avoid_: RETRY、REVISE(討論中提出後確認是過度設計,已收斂)
 
 ### 上下文治理
 
-**ContextManager 的 compact 保留規則**:
-compact 只需要保留 LLM 思考需要的對話內容(工具執行結果、人類在 `ResultReviewer` 給的 `REJECT` 回饋等),不需要保留審批決策本身——「這個 session 已經核准過某類操作」這件事記錄在 `RiskPolicy`(狀態物件),不是記錄在對話訊息裡,不會因 compact 而遺失。
+**ContextManager**:
+上下文治理的抽象介面,對 `AgentLoop` 只暴露一個方法:`maybe_compact(messages: list[LlmMessage]) -> list[LlmMessage]`,回傳一份新清單(不原地修改傳入的清單)。`AgentLoop` 建構子**必填**依賴,不像 `ResultReviewer` 是可選插槽——長對話遲早會超出 context window,是每個真的會被使用的 `AgentLoop` 都要處理的問題,不是可有可無的功能。`AgentLoop` 每輪呼叫 `LLMProvider.call()` **之前**都會先呼叫這個方法一次,搶在送出請求前確保這次的歷史大小是安全的。
+之所以做成介面而不是寫死在 `AgentLoop` 裡,主要理由是「`AgentLoop` 自己的測試需要塞 `FakeContextManager`」——這是具體、現在就存在的需求,不是「以後可能有多種策略」;後者證據力較弱(業界框架做法確實分歧,但專案內目前沒有具體排定、已知會做的第二個實作,不像 `Tool`/`LLMProvider` 那樣已經有明確排隊的第二個實作)。
+_Avoid_: 把 `ContextManager` 歸類進 `adapters/`——`adapters/` 目前的慣例是橋接外部系統(廠商 SDK、外部 MCP server、外部檔案),壓縮邏輯操作的是我們自己的 `LlmMessage`、透過已經抽象好的 `LLMProvider` 做事,沒有橋接任何外部系統,定位維持 `core/`(套件形式:介面 + 目前唯一的策略實作)。判斷標準完整記錄見 `docs/adr/0004-adapters-directory-scope.md`。
+
+**壓縮策略(目前唯一的具體實作,暫定)**:
+以 `LLMProvider.count_tokens(messages)` 回傳的真實 token 數當觸發訊號,不用訊息數量或字元數這種粗略代理指標。超過閾值時,從最舊的訊息開始收進「待壓縮範圍」,直到剩餘部分(摘要 + 保留的近期訊息)估計降到目標比例以下——比例壓縮,不是固定訊息數/固定則數。收進待壓縮範圍時一律以完整的一輪為單位,**絕對不可以把一組 `ToolUseBlock`/`ToolResultBlock` 從中間切開**(硬性限制,不是可調參數)。
+壓縮結果是**一則新的 `LlmMessage(role="user", content_blocks=[TextBlock(摘要文字)])`**,取代整段被壓縮的訊息;範圍外(較新)的訊息完全不動。被壓縮範圍內的工具呼叫/結果**不特別保真**,跟敘事文字一起整批交給 LLM 摘要——查證過 ADK(sliding window + salience 保護)、LangGraph/LangMem(工具結果直接一起摘要,有已知 bug)、Claude Code(確定性清除舊結果 + 另外一段敘事摘要)三家實際做法,沒有一家「工具結果永遠逐字保留」,決定不為此增加複雜度;真的需要精確數值時,重新呼叫工具即可,不依賴壓縮後的記憶。
+摘要 prompt 明確要求描述「目前任務/意圖的現況」,`messages[0]`(最初的任務指令)**不**豁免於壓縮之外——避免任務中途轉向後,一則過時的初始指令因為被特殊保護而搶走不該有的份量;「目前意圖」該由每次摘要重新萃取,不是靠釘住某一則舊訊息保證。
+呼叫 LLM 做摘要時,避免模型順便呼叫工具,靠 prompt 措辭處理,不做程式碼層級的抑制。這次摘要呼叫失敗(重試用盡或 `NonRetryableLLMError`)時直接讓例外往外傳、`AgentLoop.run()` 整個中斷,不靜默跳過這輪壓縮——跟其他失敗情境一致,fail closed。
+_已知取捨_:`ContextManager`/`AgentLoop` 對 `RetryableLLMError` 的重試邏輯**各自獨立實作**,不共用同一個函式——兩者預期的重試次數、等待策略本來就可能不同,強行抽出共用函式反而要塞一堆參數去適應差異。
+
+**count_tokens / get_max_context_tokens**(`LLMProvider` 新增的抽象方法):
+都是一般 instance method,不是 `classmethod`——需要用到建構時已經存好的 `self.client`(真的打 API 用)、`self.sys_prompt`/`self.native_tool_list`(算總量時要一起算進去,不只算 `messages` 本身)。查證過 Gemini/Anthropic 的 token 計算端點都免費、不計入 quota,OpenAI 甚至完全不用打 API(`tiktoken` 本地函式庫直接算),不用擔心呼叫成本。`max_context_tokens` 是 `ContextManager` 建構子的可選參數,沒填時預設值 = `get_max_context_tokens()` × 一個可調比例(因為 Gemini 的 context window 是輸入+輸出合併計算,不能直接拿滿版上限當閾值,要留輸出空間);有填就完全不會呼叫 `get_max_context_tokens()`,零額外網路依賴。
 
 ### 工具(Tool)
 
