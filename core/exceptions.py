@@ -32,3 +32,15 @@ class NonRetryableLLMError(Exception):
     """LLM API呼叫錯誤，須停止確認問題"""
 
     pass
+
+
+class SessionNotFoundError(Exception):
+    """未知的session id"""
+
+    pass
+
+
+class SessionStoreError(Exception):
+    """處理session 儲存時出現錯誤"""
+
+    pass
