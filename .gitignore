@@ -1,5 +1,9 @@
 learn_path.md
 CLAUDE.md
+tech_note.md
+
+# 本機手動測試骨架,內容常變、不隨分支/PR 走
+main.py
 
 # IDE
 .idea/
