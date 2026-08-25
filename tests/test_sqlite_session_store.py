@@ -9,6 +9,7 @@ from typing import Literal
 
 import pytest
 
+from adapters.providers.gemini import GeminiProvider
 from adapters.storage.sqlite_store import SqliteSessionStore
 from core.exceptions import SessionNotFoundError, SessionStoreError
 from core.interfaces.llm_message_model import LlmMessage, TextBlock, ToolResultBlock, ToolUseBlock
@@ -142,3 +143,27 @@ def test_context_manager_exit_actually_closes_the_connection(tmp_path: Path) -> 
 
     with pytest.raises(sqlite3.ProgrammingError):
         store.cursor.execute("SELECT 1")
+
+
+def test_real_component_save_config_round_trips_and_reconstructs(tmp_path: Path) -> None:
+    """驗證 ticket #23 的整合承諾:真正的 production 元件(這裡用 GeminiProvider,
+
+    因為它不需要其他依賴就能建構,也不會打真實 API)存進 SessionStore、
+    讀回來後可以直接用 **metadata[...] 展開重新建構出同型的新實例。
+    """
+    real_provider = GeminiProvider(
+        tool_info_list=[], api_key="fake-key-for-testing", model="gemini-3.5-flash"
+    )
+
+    with SqliteSessionStore(db_path=_db_path(tmp_path)) as store:
+        store.save("sid-1", [_text_msg("user", "hi")], components=[real_provider])
+        record = store.load("sid-1")
+
+        rebuilt = GeminiProvider(
+            tool_info_list=[],
+            api_key="fake-key-for-testing",
+            **record.component_metadata["GeminiProvider"],
+        )
+
+        assert rebuilt.model == real_provider.model
+        assert rebuilt.system_prompt == real_provider.system_prompt

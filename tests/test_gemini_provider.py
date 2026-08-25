@@ -541,3 +541,19 @@ def test_get_max_context_tokens_classifies_as_non_retryable(
 
     with pytest.raises(NonRetryableLLMError):
         provider.get_max_context_tokens()
+
+
+def test_save_config_returns_exactly_model_and_system_prompt(provider: GeminiProvider) -> None:
+    config = provider.save_config()
+
+    assert set(config) == {"model", "system_prompt"}
+    assert config["model"] == provider.model
+    assert config["system_prompt"] == provider.system_prompt
+
+
+def test_save_config_does_not_leak_api_key_or_client(provider: GeminiProvider) -> None:
+    config = provider.save_config()
+
+    assert "api_key" not in config
+    assert "client" not in config
+    assert "native_tool_list" not in config

@@ -533,3 +533,48 @@ def test_run_uses_messages_returned_by_context_manager_not_the_original() -> Non
 
     # 但後續(呼叫 LLM、加入回覆)實際採用的是 maybe_compact 回傳的新清單,不是原始清單
     assert loop.messages[0] is summary_message
+
+
+def test_save_config_returns_loop_settings() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    provider = FakeLLMProvider(registry.get_all_tool_info(), [_text_response("done")])
+    loop = AgentLoop(
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        max_iterations=5,
+        total_failure_limit=7,
+        max_llm_retries=2,
+        retry_wait_second=1,
+    )
+
+    assert loop.save_config() == {
+        "max_iterations": 5,
+        "total_failure_limit": 7,
+        "max_llm_retries": 2,
+        "retry_wait_second": 1,
+    }
+
+
+def test_save_config_output_can_reconstruct_an_equivalent_loop() -> None:
+    ToolCatalog.register(FakeAddTool())
+    registry = ToolRegistry(["add"])
+    provider = FakeLLMProvider(registry.get_all_tool_info(), [_text_response("done")])
+    loop = AgentLoop(
+        llm=provider,
+        messages=[],
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        max_iterations=5,
+    )
+
+    rebuilt = AgentLoop(
+        llm=provider,
+        tool_registry=registry,
+        context_manager=FakeContextManager(),
+        **loop.save_config(),
+    )
+
+    assert rebuilt.max_iterations == 5

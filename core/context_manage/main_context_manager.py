@@ -4,6 +4,7 @@ from core.interfaces import ContextManager, ToolUseBlock
 from core.interfaces import LLMProvider
 from core.interfaces import LlmMessage, TextBlock
 from core.exceptions import RetryableLLMError
+from typing import Any
 
 
 class MainContextManager(ContextManager):
@@ -113,3 +114,11 @@ class MainContextManager(ContextManager):
         """
 
         return self._do_compact(messages) if self._need_compact(messages) else messages
+
+    def save_config(self) -> dict[str, Any]:
+
+        return {
+            "max_llm_retries": self.max_llm_retries,
+            "retry_wait_second": self.retry_wait_second,
+            "max_context_tokens": self.max_context_tokens,
+        }

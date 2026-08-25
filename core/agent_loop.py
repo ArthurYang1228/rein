@@ -3,7 +3,7 @@
 from core.interfaces.llm_message_model import LlmMessage, TextBlock, ToolResultBlock, ContentBlock
 from core.tool_registry import ToolRegistry
 from core.interfaces import LLMProvider, ContextManager
-from typing import Optional
+from typing import Optional, Any
 from dataclasses import dataclass, field
 from core.exceptions import MaxIterationsExceededError, ToolExecutionError
 from core.exceptions import RetryableLLMError
@@ -98,3 +98,12 @@ class AgentLoop:
                 return resp
 
         raise MaxIterationsExceededError(f"超出執行迴圈上限:{self.max_iterations}次")
+
+    def save_config(self) -> dict[str, Any]:
+
+        return {
+            "max_iterations": self.max_iterations,
+            "total_failure_limit": self.total_failure_limit,
+            "max_llm_retries": self.max_llm_retries,
+            "retry_wait_second": self.retry_wait_second,
+        }

@@ -70,3 +70,20 @@ def test_multiple_registries_are_independent() -> None:
 
     assert list(registry_a.tool_dict) == ["delta", "epsilon"]
     assert list(registry_b.tool_dict) == ["epsilon"]
+
+
+def test_save_config_returns_filtered_tool_names() -> None:
+    _register("zeta")
+    _register("eta")
+    registry = ToolRegistry(["zeta", "eta"])
+
+    assert registry.save_config() == {"tool_name_list": ["zeta", "eta"]}
+
+
+def test_save_config_output_can_reconstruct_an_equivalent_registry() -> None:
+    _register("theta")
+    registry = ToolRegistry(["theta"])
+
+    rebuilt = ToolRegistry(**registry.save_config())
+
+    assert list(rebuilt.tool_dict) == ["theta"]
