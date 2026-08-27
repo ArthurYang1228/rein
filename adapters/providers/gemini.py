@@ -220,3 +220,6 @@ class GeminiProvider(LLMProvider):
             raise ValueError(f"模型 {self.model} 沒有回報 input_token_limit")
 
         return model_info.input_token_limit
+
+    def save_config(self) -> dict[str, Any]:
+        return {"system_prompt": self.system_prompt, "model": self.model}

@@ -282,3 +282,29 @@ def test_maybe_compact_does_not_crash_on_empty_messages_when_over_threshold() ->
     first_block = result[0].content_blocks[0]
     assert isinstance(first_block, TextBlock)
     assert first_block.content == "空歷史摘要"
+
+
+def test_save_config_returns_tunable_settings() -> None:
+    provider = FakeLLMProvider(max_context_tokens=1000)
+    cm = MainContextManager(
+        provider, max_context_tokens=500, max_llm_retries=3, retry_wait_second=2
+    )
+
+    assert cm.save_config() == {
+        "max_llm_retries": 3,
+        "retry_wait_second": 2,
+        "max_context_tokens": 500,
+    }
+
+
+def test_save_config_output_can_reconstruct_an_equivalent_instance() -> None:
+    provider = FakeLLMProvider(max_context_tokens=1000)
+    cm = MainContextManager(
+        provider, max_context_tokens=500, max_llm_retries=3, retry_wait_second=2
+    )
+
+    rebuilt = MainContextManager(llm=provider, **cm.save_config())
+
+    assert rebuilt.max_context_tokens == 500
+    assert rebuilt.max_llm_retries == 3
+    assert rebuilt.retry_wait_second == 2

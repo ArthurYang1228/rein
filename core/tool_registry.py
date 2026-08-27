@@ -4,6 +4,7 @@ from core.interfaces.tool import Tool
 from core.tool_catalog import ToolCatalog
 from core.interfaces.tool_info_model import ToolInfo
 from core.exceptions import UnknownToolError
+from typing import Any
 
 
 class ToolRegistry:
@@ -33,3 +34,6 @@ class ToolRegistry:
 
     def get_all_tool_info(self) -> list[ToolInfo]:
         return [tool.get_info() for tool in self.tool_dict.values()]
+
+    def save_config(self) -> dict[str, Any]:
+        return {"tool_name_list": list(self.tool_dict.keys())}
